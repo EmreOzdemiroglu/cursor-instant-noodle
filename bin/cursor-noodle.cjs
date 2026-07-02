@@ -189,35 +189,31 @@ function checkAntigravity() {
 }
 
 function checkOpencode() {
-    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
-    const j = readJson(authPath);
-    if (!j) return { ok: false, detail: '~/.local/share/opencode/auth.json not found' };
-    const env = process.env;
-    const hasCodingPlan = !!j['opencode'];
-    const hasZen = !!env.OPENCODE_ZEN_API_KEY || !!j['opencode-zen'];
-    const hasGo = !!env.OPENCODE_GO_API_KEY || hasCodingPlan;
-    if (!hasZen && !hasGo && !hasCodingPlan) return { ok: false, detail: 'no zen/go/coding-plan keys' };
+    const zenKeys = readEnvKeys('OPENCODE_ZEN_API_KEY');
+    const goKeys = readEnvKeys('OPENCODE_GO_API_KEY');
     const labels = [];
-    if (hasZen) labels.push('zen');
-    if (hasGo) labels.push('go');
-    if (hasCodingPlan) labels.push('coding-plan');
-    return { ok: true, detail: labels.join('+') };
+    if (zenKeys.length > 0) labels.push(`zen (${zenKeys.length})`);
+    if (goKeys.length > 0) labels.push(`go (${goKeys.length})`);
+    if (zenKeys.length === 0 && goKeys.length === 0) {
+        return { ok: false, detail: 'no OPENCODE_ZEN_API_KEY / OPENCODE_GO_API_KEY in ~/.cursor-noodle/.env' };
+    }
+    return { ok: true, detail: labels.join(' + ') };
 }
 
 function checkZai() {
-    if (process.env.ZAI_API_KEY) return { ok: true, detail: 'ZAI_API_KEY env' };
-    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
-    const j = readJson(authPath);
-    if (j && j['z.ai'] && j['z.ai'].key) return { ok: true, detail: 'z.ai key in opencode auth' };
-    return { ok: false, detail: 'ZAI_API_KEY missing' };
+    const keys = readEnvKeys('ZAI_API_KEY');
+    if (keys.length === 0) {
+        return { ok: false, detail: 'no ZAI_API_KEY in ~/.cursor-noodle/.env' };
+    }
+    return { ok: true, detail: keys.length === 1 ? `1 key in .env: ${maskKey(keys[0])}` : `${keys.length} keys in .env` };
 }
 
 function checkMinimax() {
-    if (process.env.MINIMAX_API_KEY) return { ok: true, detail: 'MINIMAX_API_KEY env' };
-    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
-    const j = readJson(authPath);
-    if (j && j['minimax'] && j['minimax'].key) return { ok: true, detail: 'minimax key in opencode auth' };
-    return { ok: false, detail: 'MINIMAX_API_KEY missing' };
+    const keys = readEnvKeys('MINIMAX_API_KEY');
+    if (keys.length === 0) {
+        return { ok: false, detail: 'no MINIMAX_API_KEY in ~/.cursor-noodle/.env' };
+    }
+    return { ok: true, detail: keys.length === 1 ? `1 key in .env: ${maskKey(keys[0])}` : `${keys.length} keys in .env` };
 }
 
 // Async local-server probe — runs after status prints the other providers.
@@ -245,13 +241,15 @@ async function probeLocalAsync() {
     return { ok: false, detail: 'no server on :1234/:8080/:11434' };
 }
 
-// Read .env file for env vars that aren't yet in process.env (CLI doesn't load .env)
+// Read .env file. The wizard writes credentials to ~/.cursor-noodle/.env,
+// so that file is authoritative: it overrides whatever may already be in
+// process.env. The shell environment only fills in gaps the wizard didn't set.
 function loadEnvFile(envPath) {
     if (!fileExists(envPath)) return;
     try {
         for (const line of fs2.readFileSync(envPath, 'utf8').split('\n')) {
-            const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)\s*$/);
-            if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
+            const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+?)\s*$/);
+            if (m) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
         }
     } catch (e) {}
 }

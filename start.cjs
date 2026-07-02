@@ -20,8 +20,10 @@ function loadEnv() {
             (value.startsWith("'") && value.endsWith("'"))) {
             value = value.slice(1, -1);
         }
-        // Only set if not already in process.env (env wins)
-        if (process.env[key] === undefined) process.env[key] = value;
+        // ~/.cursor-noodle/.env is the authoritative source: the setup
+        // wizard writes there, so it always wins over any stale shell env.
+        // Shell env only fills gaps the wizard didn't set.
+        process.env[key] = value;
     }
 }
 loadEnv();
