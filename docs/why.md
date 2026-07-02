@@ -1,6 +1,6 @@
 # Why? — Cursor on an instant-noodle budget
 
-![Cursor on an instant-noodle budget](../assets/cursor-ramen.png)
+![Cursor on an instant-noodle budget](../assets/cursor-ramen.png?v=2)
 
 ## The problem
 

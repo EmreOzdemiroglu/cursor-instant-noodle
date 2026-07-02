@@ -16,7 +16,7 @@ Cursor ──► https://<random>.trycloudflare.com/v1
                                          LMStudio / llama.cpp / Unsloth  (local)
 ```
 
-![Cursor on an instant-noodle budget](assets/cursor-ramen.png)
+![Cursor on an instant-noodle budget](assets/cursor-ramen.png?v=2)
 
 ## Highlights
 
