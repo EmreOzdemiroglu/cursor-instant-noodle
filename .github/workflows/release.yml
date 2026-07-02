@@ -52,15 +52,7 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
 
-      # ── Auto-publish to npm ────────────────────────────────────
-      # Requires the NPM_TOKEN repo secret: a granular or classic
-      # publish token for the @emreozdemiroglu account. 2FA on the
-      # account must be set to allow this token to bypass it (npm
-      # calls this "publishing with a token" / automation mode).
-      - name: Publish to npm
-        if: ${{ secrets.NPM_TOKEN != '' }}
-        run: |
-          npm config set //registry.npmjs.org/:_authToken "${{ secrets.NPM_TOKEN }}"
-          npm publish --access public
-        env:
-          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+      # Publishing to npm is done manually by the maintainer
+      # (`npm publish` locally) so the workflow does not need an
+      # NPM_TOKEN secret. The version in package.json is the source
+      # of truth for what gets published.
