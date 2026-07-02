@@ -94,33 +94,48 @@ if (cloudflaredPath) {
 }
 
 // ─── .env hot reload ─────────────────────────────────────────────────────
-// Watch the data dir for changes to .env and restart both proxy and tunnel.
-// The tunnel URL changes per .env change — old URLs stop working, which is
-// a free safety bump: leaked URLs only stay valid until the next config edit.
+// Watch the data dir for changes to .env and reload the proxy in place.
+// We deliberately do NOT recycle the cloudflared tunnel on .env changes —
+// rotating the public URL every time someone tweaks a key would break
+// Cursor mid-edit. The URL only changes when the proxy process itself is
+// restarted (`cursor-noodle restart`, crash recovery, daemon startup).
 function restartProxy(reason) {
-    console.log(`🍜 ${reason} — restarting proxy and tunnel (new public URL)`);
+    console.log(`🍜 ${reason} — reloading proxy in place (tunnel stays up)`);
     plannedRestart = true;
     try { proxy && proxy.kill('SIGTERM'); } catch (e) {}
-    try { tunnel && tunnel.kill('SIGTERM'); } catch (e) {}
-    // Wait briefly for children to exit, then respawn. Polling avoids
-    // races with the 'close' handlers (which set exitCode asynchronously).
+    // Wait for the proxy to exit, then respawn it. The tunnel stays up
+    // throughout (its only purpose is forwarding to localhost:PORT).
     let elapsed = 0;
     const wait = setInterval(() => {
         elapsed += 50;
         const proxyDead = !proxy || proxy.exitCode != null;
-        const tunnelDead = !cloudflaredPath || !tunnel || tunnel.exitCode != null;
-        if ((proxyDead && tunnelDead) || elapsed > 3000) {
+        if (proxyDead || elapsed > 3000) {
             clearInterval(wait);
             spawnProxy();
-            if (cloudflaredPath) spawnTunnel();
             setTimeout(() => { plannedRestart = false; }, 500);
         }
     }, 50);
 }
 
+// Cheap content hash so we can collapse bursts of writes during setup
+// (e.g. OAuth login appends refresh/access/id/email tokens one by one
+// with network IO between them) into a single reload. Comments and
+// blank lines are ignored so cosmetic edits (uncommenting an example
+// key) don’t trigger a reload on their own.
+function hashEnvFile(p) {
+    try {
+        const c = fs.readFileSync(p, 'utf8');
+        const meaningful = c.split('\n').filter(l => !/^\s*(#|$)/.test(l)).join('\n');
+        let h = 5381;
+        for (let i = 0; i < meaningful.length; i++) h = ((h << 5) + h + meaningful.charCodeAt(i)) | 0;
+        return h + ':' + meaningful.length;
+    } catch (e) { return '0'; }
+}
+
 function startEnvWatcher() {
     if (!fs.existsSync(ENV_FILE)) return;
     let lastMtime = fs.statSync(ENV_FILE).mtimeMs;
+    let lastHash = hashEnvFile(ENV_FILE);
     let pending = null;
 
     const trigger = (reason) => {
@@ -129,12 +144,15 @@ function startEnvWatcher() {
             pending = null;
             try {
                 const mtime = fs.statSync(ENV_FILE).mtimeMs;
+                const hash = hashEnvFile(ENV_FILE);
                 if (mtime === lastMtime) return;
+                if (hash === lastHash) { lastMtime = mtime; return; }
                 lastMtime = mtime;
+                lastHash = hash;
                 loadEnv();
                 restartProxy(reason);
             } catch (e) { /* file gone or unreadable; ignore */ }
-        }, 250);
+        }, 800);
     };
 
     // fs.watch can miss events on some editors; combine with mtime polling

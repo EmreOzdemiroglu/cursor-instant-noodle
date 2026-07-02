@@ -51,7 +51,9 @@ Fix: paste the same `instant-noodle-xxxxxxxx` value into Cursor's `Models → Op
 
 ## Tunnel URL keeps changing
 
-Cloudflare Quick Tunnels are free and ephemeral. The URL changes every time you restart `cursor-noodle`, and also every time you edit `~/.cursor-noodle/.env` (the proxy and tunnel both respawn so a leaked URL stops working). Options:
+Cloudflare Quick Tunnels are free and ephemeral. The URL changes whenever the proxy process is restarted — `cursor-noodle restart`, a daemon startup, or a crash recovery. Editing `~/.cursor-noodle/.env` no longer rotates the URL; only the proxy reloads in place, so your Cursor config keeps working through config edits.
+
+If you want a stable URL across restarts, options are:
 
 1. **Use the local URL** (`http://localhost:6767/v1`) — works fine if Cursor runs on the same machine. Recommended.
 2. **Set up a named tunnel** (free, fixed URL) — see Cloudflare's docs. Requires a Cloudflare account and a domain.
