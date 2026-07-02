@@ -51,26 +51,23 @@ The full advertised model list lives in [lib/models.cjs](lib/models.cjs) and is 
 
 Requires Node.js 18+.
 
-**Option A — standalone binary (no Node.js required):**
+**Option A — npm (recommended):**
+
+```bash
+npm install -g cursor-instant-noodle
+cursor-noodle        # first run opens the setup wizard
+cursor-noodle start  # starts the proxy + public tunnel
+```
+
+Requires Node.js 18+. `npm` installs the package, its dependencies, and the `cursor-noodle` command on your PATH.
+
+**Option B — standalone binary (no Node.js required):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EmreOzdemiroglu/cursor-instant-noodle/main/install.sh | bash
 ```
 
 This downloads a prebuilt binary from the latest [GitHub release](https://github.com/EmreOzdemiroglu/cursor-instant-noodle/releases) to `~/.local/bin/cursor-noodle` and adds it to your PATH.
-
-**Option B — npm (from source):**
-
-```bash
-git clone https://github.com/EmreOzdemiroglu/cursor-instant-noodle
-cd cursor-instant-noodle
-npm install
-npm link
-cursor-noodle        # first run opens the setup wizard
-cursor-noodle start  # starts the proxy + public tunnel
-```
-
-> Note: `npm install -g github:owner/repo` (the GitHub shorthand) is currently unreliable on npm 11 — files end up missing from the install. Use the `git clone` + `npm install` + `npm link` flow above, or the standalone binary in Option A.
 
 Either way, `cursor-noodle start` will download the `cloudflared` binary on first run so the public tunnel works out of the box. If that download fails (offline, rate-limited, corporate proxy), the local proxy still works — see [troubleshooting](docs/troubleshooting.md).
 
@@ -82,6 +79,8 @@ cd cursor-instant-noodle
 npm install
 node bin/cursor-noodle.cjs start
 ```
+
+> Note: `npm install -g github:owner/repo` (the GitHub shorthand) is currently unreliable on npm 11 — files end up missing from the install. Use Option A (`npm install -g cursor-instant-noodle` from the registry) or Option B (binary) instead.
 
 ## Connect Cursor
 
