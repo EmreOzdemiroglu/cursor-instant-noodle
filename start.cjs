@@ -15,14 +15,11 @@ function loadEnv() {
         if (eq === -1) continue;
         const key = trimmed.slice(0, eq).trim();
         let value = trimmed.slice(eq + 1).trim();
-        // Strip surrounding quotes
         if ((value.startsWith('"') && value.endsWith('"')) ||
             (value.startsWith("'") && value.endsWith("'"))) {
             value = value.slice(1, -1);
         }
-        // ~/.cursor-noodle/.env is the authoritative source: the setup
-        // wizard writes there, so it always wins over any stale shell env.
-        // Shell env only fills gaps the wizard didn't set.
+        // ~/.cursor-noodle/.env is the authoritative source.
         process.env[key] = value;
     }
 }
@@ -31,14 +28,24 @@ loadEnv();
 console.log('--- Starting Cursor Instant Noodle & Persistent Tunnel ---');
 
 const port = process.env.PORT || '6767';
-const proxy = spawn('node', ['proxy.cjs'], {
-    stdio: 'inherit',
-    cwd: __dirname,
-    env: { ...process.env, PORT: port },
-});
 
-// Resolve cloudflared: prefer the bundled binary, fall back to PATH,
-// and disable the tunnel gracefully if it's not available at all.
+let proxy = null;
+let plannedRestart = false;
+function spawnProxy() {
+    proxy = spawn('node', ['proxy.cjs'], {
+        stdio: 'inherit',
+        cwd: __dirname,
+        env: { ...process.env, PORT: port },
+    });
+    proxy.on('close', (code) => {
+        if (shuttingDown) return;
+        if (plannedRestart) return;
+        console.log(`Proxy exited with code ${code}; restarting in 1s...`);
+        setTimeout(spawnProxy, 1000);
+    });
+}
+spawnProxy();
+
 function resolveCloudflared() {
     const bundled = path.join(__dirname, 'cloudflared');
     if (fs.existsSync(bundled) && fs.accessSync(bundled, fs.constants.X_OK) === undefined) return bundled;
@@ -52,18 +59,14 @@ function resolveCloudflared() {
 
 const cloudflaredPath = resolveCloudflared();
 let tunnel = null;
-if (cloudflaredPath) {
+let urlFound = false;
+
+function spawnTunnel() {
+    if (!cloudflaredPath) return;
+    urlFound = false;
     tunnel = spawn(cloudflaredPath, ['tunnel', '--url', `http://localhost:${port}`], {
         cwd: __dirname,
     });
-} else {
-    console.log('cloudflared not found — public tunnel disabled.');
-    console.log('Local proxy still works at http://localhost:' + port + '/v1');
-    console.log('Install cloudflared for a public URL:  brew install cloudflared  |  https://github.com/cloudflare/cloudflared/releases');
-}
-
-let urlFound = false;
-if (tunnel) {
     tunnel.stderr.on('data', (data) => {
         const output = data.toString();
         const urlMatch = output.match(/https:\/\/[a-z0-9-]+\.trycloudflare\.com/);
@@ -76,20 +79,89 @@ if (tunnel) {
             console.log('--------------------------------------------------\n');
         }
     });
-
     tunnel.on('close', (code) => {
+        if (shuttingDown) return;
         console.log(`Tunnel exited with code ${code}`);
-        process.exit(code);
     });
 }
-proxy.on('close', (code) => {
-    console.log(`Proxy exited with code ${code}`);
-    if (tunnel) tunnel.kill();
-    process.exit(code);
-});
-process.on('SIGINT', () => {
+
+if (cloudflaredPath) {
+    spawnTunnel();
+} else {
+    console.log('cloudflared not found — public tunnel disabled.');
+    console.log('Local proxy still works at http://localhost:' + port + '/v1');
+    console.log('Install cloudflared for a public URL:  brew install cloudflared  |  https://github.com/cloudflare/cloudflared/releases');
+}
+
+// ─── .env hot reload ─────────────────────────────────────────────────────
+// Watch the data dir for changes to .env and restart both proxy and tunnel.
+// The tunnel URL changes per .env change — old URLs stop working, which is
+// a free safety bump: leaked URLs only stay valid until the next config edit.
+function restartProxy(reason) {
+    console.log(`🍜 ${reason} — restarting proxy and tunnel (new public URL)`);
+    plannedRestart = true;
+    try { proxy && proxy.kill('SIGTERM'); } catch (e) {}
+    try { tunnel && tunnel.kill('SIGTERM'); } catch (e) {}
+    // Wait briefly for children to exit, then respawn. Polling avoids
+    // races with the 'close' handlers (which set exitCode asynchronously).
+    let elapsed = 0;
+    const wait = setInterval(() => {
+        elapsed += 50;
+        const proxyDead = !proxy || proxy.exitCode != null;
+        const tunnelDead = !cloudflaredPath || !tunnel || tunnel.exitCode != null;
+        if ((proxyDead && tunnelDead) || elapsed > 3000) {
+            clearInterval(wait);
+            spawnProxy();
+            if (cloudflaredPath) spawnTunnel();
+            setTimeout(() => { plannedRestart = false; }, 500);
+        }
+    }, 50);
+}
+
+function startEnvWatcher() {
+    if (!fs.existsSync(ENV_FILE)) return;
+    let lastMtime = fs.statSync(ENV_FILE).mtimeMs;
+    let pending = null;
+
+    const trigger = (reason) => {
+        if (pending) clearTimeout(pending);
+        pending = setTimeout(() => {
+            pending = null;
+            try {
+                const mtime = fs.statSync(ENV_FILE).mtimeMs;
+                if (mtime === lastMtime) return;
+                lastMtime = mtime;
+                loadEnv();
+                restartProxy(reason);
+            } catch (e) { /* file gone or unreadable; ignore */ }
+        }, 250);
+    };
+
+    // fs.watch can miss events on some editors; combine with mtime polling
+    // every 2s as a safety net.
+    try {
+        fs.watch(ENV_FILE, { persistent: false }, () => trigger('.env changed'));
+    } catch (e) {
+        // Fall back to watching the parent dir (handles atomic save: editor
+        // writes to a temp file then renames it over the real .env).
+        try {
+            fs.watch(DATA_DIR, { persistent: false }, (_evt, name) => {
+                if (name === path.basename(ENV_FILE)) trigger('.env changed');
+            });
+        } catch (e2) { /* best-effort; mtime poll below still catches it */ }
+    }
+    setInterval(() => trigger('.env updated'), 2000);
+}
+startEnvWatcher();
+
+// ─── shutdown ────────────────────────────────────────────────────────────
+let shuttingDown = false;
+const shutdown = () => {
+    shuttingDown = true;
     console.log('\nShutting down...');
-    proxy.kill();
-    tunnel.kill();
+    try { proxy && proxy.kill(); } catch (e) {}
+    try { tunnel && tunnel.kill(); } catch (e) {}
     process.exit();
-});
+};
+process.on('SIGINT', shutdown);
+process.on('SIGTERM', shutdown);
