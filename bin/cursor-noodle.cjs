@@ -41,6 +41,7 @@ const {
     ensureDataDir,
     ensureEnvFile,
 } = require('../lib/paths.cjs');
+const { MODELS, advertisedModels } = require('../lib/models.cjs');
 
 function printBanner() {
     const banner = boxen(
@@ -308,49 +309,42 @@ function status() {
     });
     console.log();
 
-    // ── Live model counts per provider (from running proxy) ────
-    fetch(`http://localhost:${port}/v1/models`).then(r => r.ok ? r.json() : null).then(data => {
-        if (!data || !data.data) {
-            console.log(`  ${chalk.yellow('(could not fetch model list)')}`);
-            return;
+    // ── Model counts (from local MODELS list — works whether or not the
+    //    proxy is running). When the proxy IS running we still hit the live
+    //    endpoint so any dynamic changes (e.g. live Opencode Go list) show up.
+    const advertised = advertisedModels();
+    const buckets = {};
+    const localBucket = 'local';
+    for (const m of advertised) {
+        const b = m.owned_by;
+        const bucket = (b === 'lmstudio' || b === 'llamacpp' || b === 'unsloth') ? localBucket : b;
+        buckets[bucket] = (buckets[bucket] || 0) + 1;
+    }
+    // Map proxy provider keys to status-check keys for the OK/miss tag.
+    const okMap = {
+        'antigravity': providerStatus.antigravity?.ok,
+        'codex':       providerStatus.codex?.ok,
+        'zai':         providerStatus.zai?.ok,
+        'minimax':     providerStatus.minimax?.ok,
+        'zen':         providerStatus.opencode?.ok,
+        'opencode':    providerStatus.opencode?.ok,
+        'local':       providerStatus.local?.ok,
+    };
+    const order = ['antigravity', 'codex', 'zai', 'minimax', 'zen', 'opencode', 'local'];
+    const seen = new Set();
+    for (const k of order) {
+        if (buckets[k] != null) {
+            const ok = okMap[k];
+            const tag = ok ? chalk.green('OK  ') : (ok === false ? chalk.yellow('keys') : chalk.dim('??   '));
+            console.log(`  ${tag}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
+            seen.add(k);
         }
-        // Bucket by owned_by (provider key from proxy.cjs). Local variants
-        // (lmstudio/llamacpp/unsloth) collapse under 'local'.
-        const buckets = {};
-        const localBucket = 'local';
-        for (const m of data.data) {
-            const b = m.owned_by;
-            const bucket = (b === 'lmstudio' || b === 'llamacpp' || b === 'unsloth') ? localBucket : b;
-            buckets[bucket] = (buckets[bucket] || 0) + 1;
-        }
-        // Map proxy provider keys to status-check keys for the OK/miss tag.
-        const okMap = {
-            'antigravity': providerStatus.antigravity?.ok,
-            'codex':       providerStatus.codex?.ok,
-            'zai':         providerStatus.zai?.ok,
-            'minimax':     providerStatus.minimax?.ok,
-            'zen':         providerStatus.opencode?.ok,
-            'opencode':    providerStatus.opencode?.ok,
-            'local':       providerStatus.local?.ok,
-        };
-        const order = ['antigravity', 'codex', 'zai', 'minimax', 'zen', 'opencode', 'local'];
-        const seen = new Set();
-        for (const k of order) {
-            if (buckets[k] != null) {
-                const ok = okMap[k];
-                const tag = ok ? chalk.green('OK  ') : (ok === false ? chalk.yellow('keys') : chalk.dim('??   '));
-                console.log(`  ${tag}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
-                seen.add(k);
-            }
-        }
-        for (const k of Object.keys(buckets)) {
-            if (!seen.has(k)) console.log(`  ${chalk.dim('     ')}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
-        }
-        console.log();
-        console.log(chalk.dim(`  Total: ${data.data.length} model(s) advertised · cursor-noodle models`));
-    }).catch(err => {
-        console.log(`  ${chalk.yellow('(could not fetch model list: ' + err.message + ')')}`);
-    });
+    }
+    for (const k of Object.keys(buckets)) {
+        if (!seen.has(k)) console.log(`  ${chalk.dim('     ')}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
+    }
+    console.log();
+    console.log(chalk.dim(`  Total: ${advertised.length} model(s) advertised · cursor-noodle models`));
 }
 
 function logs() {
@@ -379,28 +373,19 @@ function tunnel() {
 
 async function models() {
     printBanner();
-    const spinner = ora({ text: 'Fetching models...', color: 'cyan' }).start();
-    try {
-        const out = execSync(`curl -s --max-time 5 'http://localhost:${PORT()}/v1/models'`, { encoding: 'utf8' });
-        const data = JSON.parse(out);
-        const grouped = {};
-        for (const m of data.data) {
-            const p = m.owned_by || 'unknown';
-            if (!grouped[p]) grouped[p] = [];
-            grouped[p].push(m.id);
-        }
-        spinner.stop();
-        for (const provider of Object.keys(grouped).sort()) {
-            console.log(chalk.bold.magenta(`\n  ${provider.toUpperCase()}`));
+    const data = { data: advertisedModels() };
+    const grouped = {};
+    for (const m of data.data) {
+        const p = m.owned_by || 'unknown';
+        if (!grouped[p]) grouped[p] = [];
+        grouped[p].push(m.id);
+    }
+    for (const provider of Object.keys(grouped).sort()) {
+        console.log(chalk.bold.magenta(`\n  ${provider.toUpperCase()}`));
             for (const id of grouped[provider].sort()) {
                 console.log(`    - ${id}`);
             }
         }
-    } catch (e) {
-        spinner.stop();
-        console.log(log.error + ' ' + chalk.red('Could not fetch models — is the proxy running?'));
-        console.log(chalk.dim('  Try: cursor-noodle start'));
-    }
     console.log();
 }
 
