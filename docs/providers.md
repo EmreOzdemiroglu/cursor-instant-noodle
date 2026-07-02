@@ -20,16 +20,26 @@ This proxy is a router. It looks at the model name in the request and forwards t
 
 ---
 
-## Multi-account (round-robin)
+## Multi-account (sticky failover)
 
-Any API-key provider (`Opencode Zen`, `z.ai`, `minimax`, `Opencode Go`) can take **multiple keys** separated by commas. The proxy round-robins between them so rate limits and quotas are spread across accounts.
+Every provider that supports multiple accounts uses the same selection policy: **sticky failover**.
+
+- The proxy always uses **account 1** by default.
+- If account 1 returns `401` (auth), `403` (forbidden), `429` (rate-limited), or any `5xx`, the proxy silently tries **account 2**, then **account 3**, and so on.
+- A failed key is marked unhealthy for 60 seconds, then retried.
+- The caller (Cursor) only sees an error after **every** account has been tried.
+- This is true for both API-key providers and OAuth providers.
+
+Why not round-robin? Round-robin is fine for stateless API keys, but it punishes users with one good and one bad account (50% of requests hit the bad one). Sticky failover keeps good accounts on account 1 and only fails over when account 1 actually breaks. It also preserves backend cache affinity.
+
+Add multiple accounts in `~/.cursor-noodle/.env` (comma-separated):
 
 ```
 OPENCODE_ZEN_API_KEY=sk-account1,sk-account2,sk-account3
 ZAI_API_KEY=key1,key2
 ```
 
-You can add keys via `cursor-noodle setup` → pick the provider → "+ Add a key" → paste → repeat. Round-robin is per-process (not shared across proxy restarts), and evenly distributes requests.
+You can add keys via `cursor-noodle setup` → pick the provider → "+ Add a key" → paste → repeat. The proxy picks up new keys automatically (no restart needed) via the `.env` hot-reload.
 
 ---
 
@@ -39,7 +49,7 @@ Google's free IDE gives you access to Gemini 3 Pro, Gemini 3 Flash, Claude Sonne
 
 **Auth source:** run `cursor-noodle setup`, pick Antigravity, and sign in with Google. Tokens are stored in `~/.cursor-noodle/.env`.
 
-Multiple accounts are supported, but they are **sticky failover**, not per-request round-robin: account 1 is used until it hits auth/quota/rate failure, then account 2 is tried silently.
+Multiple accounts are supported. See the [Multi-account](#multi-account-sticky-failover) section above — same sticky-failover behavior.
 
 **Model IDs:**
 - `gemini-3.5-flash-medium` / `-high` / `-low` (display: "Gemini 3.5 Flash")
@@ -58,7 +68,7 @@ If you have a ChatGPT Plus or Pro subscription, you can use the latest GPT-5.x m
 
 **Auth source:** run `cursor-noodle setup`, pick Codex, and sign in with OpenAI / ChatGPT. Tokens are stored in `~/.cursor-noodle/.env`.
 
-Multiple accounts are supported, but they are **sticky failover**, not per-request round-robin: account 1 is used until it hits auth/quota/rate failure, then account 2 is tried silently.
+Multiple accounts are supported. See the [Multi-account](#multi-account-sticky-failover) section above — same sticky-failover behavior.
 
 **Model IDs (5 reasoning variants for each, plus the mini):**
 - `gpt-5.5-{none,light,medium,high,xhigh}` ← latest, what you'll want most of the time

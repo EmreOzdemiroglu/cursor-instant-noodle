@@ -59,8 +59,24 @@ node bin/cursor-noodle.cjs start
 1. `Cmd + Shift + J` → **Models** → **OpenAI API**
 2. Enable **Override OpenAI Base URL**
 3. Paste the URL from `cursor-noodle status` (looks like `https://...trycloudflare.com/v1`)
-4. API key: anything (the proxy doesn't check, e.g. `cursor-noodle`)
+4. API key: the `instant-noodle-xxxxxxxx` key printed by `cursor-noodle start` (also retrievable with `cursor-noodle key`)
 5. Restart Cursor
+
+## API key
+
+The proxy auto-generates an `instant-noodle-xxxxxxxx` API key on first run and stores it in `~/.cursor-noodle/.env`. The proxy rejects requests without a valid `Authorization: Bearer <key>` header (Cursor's model discovery endpoint is exempt so the dropdown can populate).
+
+```bash
+cursor-noodle key         # print the current key
+cursor-noodle reset-key   # generate a new one (invalidates the old)
+```
+
+Regenerate the key if it ever leaks. The proxy hot-reloads new keys on `.env` change, so you don’t need to restart manually.
+
+## Multi-account
+
+Every multi-account provider (Opencode Zen/Go, z.ai, MiniMax, Codex, Antigravity) uses **sticky failover**: account 1 is used until it returns an auth/quota/rate failure, then account 2 is tried silently. The caller only sees an error after every account has been tried. This preserves backend cache affinity and matches the documented behavior in [docs/providers.md](docs/providers.md).
+
 
 That's it. Now open a chat and click **+ Add Custom Model** to add the models you want. Every model ID starts with **`n-`** (for noodle) so it never collides with Cursor's built-in names — e.g. `n-gemini-3.5-flash-medium`, `n-glm-4.6`, `n-minimax-m3`. See the [model ID cheat sheet](docs/models.md#model-ids-to-add-in-cursor) for the full list.
 
