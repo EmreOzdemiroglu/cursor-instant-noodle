@@ -3,8 +3,8 @@
 ## Step 1 — install and start the proxy
 
 ```bash
-npm install -g github:EmreOzdemiroglu/cursor-instant-noodle
-cursor-noodle setup
+curl -fsSL https://raw.githubusercontent.com/EmreOzdemiroglu/cursor-instant-noodle/main/install.sh | bash
+cursor-noodle
 cursor-noodle start
 ```
 
