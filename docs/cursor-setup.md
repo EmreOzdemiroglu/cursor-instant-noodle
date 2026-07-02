@@ -26,11 +26,28 @@ The settings panel opens. Click the **Models** tab in the left sidebar.
 In the **API Keys** section (right pane), find the **OpenAI API Key** block:
 
 1. **OpenAI API Key** → toggle **ON**
-2. **API key value** → any string (e.g. `cursor-noodle`). The proxy doesn't check this.
+2. **API key value** → paste the `instant-noodle-xxxxxxxx` key printed by `cursor-noodle start`. The proxy **requires** this exact value to accept requests.
 3. **Override OpenAI Base URL** → toggle **ON**
 4. **Base URL** → `https://some-words.trycloudflare.com/v1` (from `cursor-noodle status`). Must be the public tunnel URL — `localhost` will not work with Cursor.
 
 > The base URL must end in `/v1`. Cursor appends `/chat/completions` automatically.
+
+### Where to get the API key
+
+The proxy auto-generates a unique key on first run and stores it in `~/.cursor-noodle/.env`. It looks like `instant-noodle-AbCdEfGh`. There are three ways to retrieve it:
+
+```bash
+# printed in a yellow box when the proxy first starts
+cursor-noodle start
+
+# ask any time afterwards
+cursor-noodle key
+
+# regenerate (invalidates the old one; update Cursor after)
+cursor-noodle reset-key
+```
+
+The proxy hot-reloads new keys when `~/.cursor-noodle/.env` changes, so a `reset-key` does not require restarting the proxy. Cursor will start returning 401s with the old key — that's how you know to update the field.
 
 ## Step 4 — add the models you want
 
@@ -109,7 +126,11 @@ Restart not required — changes are immediate.
 - Confirm `/v1/models` returns JSON from the terminal: `curl http://localhost:6767/v1/models`
 
 **"Invalid API Key" error in Cursor**
-- Ignore it. The proxy doesn't check the key. If you see a 401/403 in the proxy log, the real backend is rejecting auth.
+The proxy checks the API key on every chat request. If Cursor is sending the wrong value (or no value), the proxy itself returns 401 with a message like `Invalid or missing API key. Set the API key in Cursor and try again.`
+
+Fix: paste the `instant-noodle-xxxxxxxx` value from `cursor-noodle key` into Cursor's OpenAI API Key field. If you ever run `cursor-noodle reset-key`, update the field in Cursor too.
+
+If the request reaches the proxy fine (you see `POST /v1/chat/completions` in the log) but still gets a 401/403, the **backend provider** is rejecting your auth — not the proxy. Check the keys in `~/.cursor-noodle/.env` or re-run `cursor-noodle setup`.
 
 **"Network error" or "Could not connect"**
 - Is the proxy running? `cursor-noodle status` should show "● running".
