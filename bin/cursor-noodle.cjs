@@ -771,10 +771,10 @@ async function setup() {
 
 function writeEnv(values) {
     let content = '';
+    ensureDataDir();
+    ensureEnvFile();
     if (fs.existsSync(ENV_FILE)) {
         content = fs.readFileSync(ENV_FILE, 'utf8');
-    } else if (fs.existsSync(ENV_EXAMPLE)) {
-        content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
     }
     for (const [key, value] of Object.entries(values)) {
         if (value === undefined || value === null) continue;
@@ -798,10 +798,10 @@ function writeEnv(values) {
 // Returns the new full list (array).
 function appendEnvKey(envVar, newKey) {
     let content = '';
+    ensureDataDir();
+    ensureEnvFile();
     if (fs.existsSync(ENV_FILE)) {
         content = fs.readFileSync(ENV_FILE, 'utf8');
-    } else if (fs.existsSync(ENV_EXAMPLE)) {
-        content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
     }
     const re = new RegExp(`^${envVar}=(.*)$`, 'm');
     let keys = [];
@@ -825,10 +825,10 @@ function appendEnvKey(envVar, newKey) {
 // positional alignment matters.
 function appendEnvValue(envVar, value) {
     let content = '';
+    ensureDataDir();
+    ensureEnvFile();
     if (fs.existsSync(ENV_FILE)) {
         content = fs.readFileSync(ENV_FILE, 'utf8');
-    } else if (fs.existsSync(ENV_EXAMPLE)) {
-        content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
     }
     const re = new RegExp(`^${envVar}=(.*)$`, 'm');
     let values = [];
