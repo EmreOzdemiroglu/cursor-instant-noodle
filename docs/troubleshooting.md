@@ -32,16 +32,26 @@ Codex CLI / opencode / agy auth files are intentionally ignored. Noodle owns its
 
 ## "Invalid API key" in Cursor
 
-This is normal. The proxy doesn't check the API key — it just forwards the request. If you see a 401/403 in the proxy log (`tail -f ~/.cursor-noodle/.cursor-noodle.log`), the real backend is rejecting auth. Check:
+There are two layers of API keys here.
 
-- `OPENCODE_ZEN_API_KEY` is correct in `.env`
+**Cursor-side (the proxy's key):** the proxy expects every chat request to include `Authorization: Bearer <key>`. The key is auto-generated and looks like `instant-noodle-xxxxxxxx`. Get it with `cursor-noodle key`. If Cursor sends the wrong (or no) bearer, the proxy returns:
+
+```json
+{"error":{"message":"Invalid or missing API key. Set the API key in Cursor and try again."}}
+```
+
+Fix: paste the same `instant-noodle-xxxxxxxx` value into Cursor's `Models → OpenAI API Key` field. If you ever need to rotate, run `cursor-noodle reset-key` and update the value in Cursor.
+
+**Backend-side (the real provider's key):** if the proxy forwards the request and the backend returns 401/403, that means the real provider rejected auth. The proxy logs show this — run `tail -f ~/.cursor-noodle/.cursor-noodle.log`. Check:
+
+- `OPENCODE_ZEN_API_KEY` is correct in `~/.cursor-noodle/.env`
 - `ZAI_API_KEY` is correct (or remove it to use the opencode fallback)
 - For Codex: run `cursor-noodle setup` and sign in again
 - For Antigravity: run `cursor-noodle setup` and sign in again
 
 ## Tunnel URL keeps changing
 
-Cloudflare Quick Tunnels are free and ephemeral. The URL changes every time you restart `cursor-noodle`. Options:
+Cloudflare Quick Tunnels are free and ephemeral. The URL changes every time you restart `cursor-noodle`, and also every time you edit `~/.cursor-noodle/.env` (the proxy and tunnel both respawn so a leaked URL stops working). Options:
 
 1. **Use the local URL** (`http://localhost:6767/v1`) — works fine if Cursor runs on the same machine. Recommended.
 2. **Set up a named tunnel** (free, fixed URL) — see Cloudflare's docs. Requires a Cloudflare account and a domain.
