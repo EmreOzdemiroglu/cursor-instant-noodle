@@ -4,6 +4,7 @@ const antigravity = require('./providers/antigravity.cjs');
 const codex = require('./providers/codex.cjs');
 const minimax = require('./providers/minimax.cjs');
 const openaiCompat = require('./providers/openai-compatible.cjs');
+const { isValidApiKey, extractBearer, readApiKey } = require('./lib/apikey.cjs');
 
 const app = express();
 app.use(express.json({ limit: '50mb' }));
@@ -15,6 +16,24 @@ app.use((req, res, next) => {
     res.header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Requested-With');
     if (req.method === 'OPTIONS') return res.sendStatus(200);
     next();
+});
+
+// API key auth on the proxy. Skip the model discovery endpoints so Cursor's
+// dropdown can still fetch /v1/models without knowing the key, and skip GET /
+// so the landing page works for a human typing the URL. Everything else
+// (chat completions, custom requests) requires the bearer token.
+app.use((req, res, next) => {
+    if (req.method === 'GET') {
+        if (req.path === '/' || req.path === '/v1/models' || req.path === '/models' || req.path === '/health') {
+            return next();
+        }
+    }
+    // If no key is configured, allow (dev mode). Once NOODLE_API_KEY is set
+    // in ~/.cursor-noodle/.env, every non-public endpoint requires it.
+    if (!readApiKey()) return next();
+    const provided = extractBearer(req.header('authorization')) || req.header('x-api-key');
+    if (isValidApiKey(provided)) return next();
+    res.status(401).json({ error: { message: 'Invalid or missing API key. Set the API key in Cursor and try again.' } });
 });
 
 app.use((req, res, next) => {

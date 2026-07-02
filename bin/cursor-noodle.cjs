@@ -93,13 +93,16 @@ function start() {
         console.log(log.error + ' ' + chalk.red('node_modules not found. Run `npm install` first.'));
         process.exit(1);
     }
+    // Make sure an API key exists so the user can copy it into Cursor.
+    const { ensureApiKey, readApiKey } = require('../lib/apikey.cjs');
+    const apiKey = readApiKey() || ensureApiKey();
     fs.writeFileSync(LOG_FILE, '');
 
     const child = spawn('node', [path.join(PACKAGE_DIR, 'start.cjs')], {
         cwd: PACKAGE_DIR,
         detached: true,
         stdio: ['ignore', fs.openSync(LOG_FILE, 'a'), fs.openSync(LOG_FILE, 'a')],
-        env: { ...process.env, PORT: String(PORT()) },
+        env: { ...process.env, PORT: String(PORT()), NOODLE_API_KEY: apiKey },
     });
     fs.writeFileSync(PID_FILE, String(child.pid));
     child.unref();
@@ -107,6 +110,12 @@ function start() {
     console.log(log.success + ' ' + chalk.green(`Started in background (pid ${child.pid})`));
     console.log(chalk.dim(`   Log:  ${LOG_FILE}`));
     console.log(chalk.dim(`   URL:  http://localhost:${PORT()}/v1`));
+    console.log();
+    console.log(boxen(
+        chalk.bold('API key (paste into Cursor)\n') + chalk.cyan(apiKey),
+        { padding: 1, borderStyle: 'round', borderColor: 'yellow', align: 'center' }
+    ));
+    console.log(chalk.dim('  Regenerate any time with: cursor-noodle reset-key'));
     console.log();
 
     // Wait for tunnel to come up
@@ -1024,6 +1033,36 @@ program
     .command('models')
     .description('List all models available through the proxy')
     .action(() => models());
+
+program
+    .command('key')
+    .description('Print the API key to paste into Cursor')
+    .action(() => {
+        ensureDataDir();
+        ensureEnvFile();
+        const { readApiKey, ensureApiKey } = require('../lib/apikey.cjs');
+        const k = readApiKey() || ensureApiKey();
+        console.log(boxen(
+            chalk.bold('API key\n') + chalk.cyan(k),
+            { padding: 1, borderStyle: 'round', borderColor: 'yellow', align: 'center' }
+        ));
+        console.log(chalk.dim('  Paste this into Cursor > Models > OpenAI API Key'));
+    });
+
+program
+    .command('reset-key')
+    .description('Generate a new API key (invalidates the old one)')
+    .action(() => {
+        ensureDataDir();
+        ensureEnvFile();
+        const { resetApiKey } = require('../lib/apikey.cjs');
+        const k = resetApiKey();
+        console.log(boxen(
+            chalk.bold('New API key (old one no longer works)\n') + chalk.cyan(k),
+            { padding: 1, borderStyle: 'round', borderColor: 'red', align: 'center' }
+        ));
+        console.log(chalk.dim('  Restart the proxy to load the new key: ') + chalk.cyan('cursor-noodle restart'));
+    });
 
 // Default action (no subcommand) = start
 program.action(() => start());

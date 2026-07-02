@@ -35,7 +35,7 @@ function spawnProxy() {
     proxy = spawn('node', ['proxy.cjs'], {
         stdio: 'inherit',
         cwd: __dirname,
-        env: { ...process.env, PORT: port },
+        env: { ...process.env, PORT: port, NOODLE_API_KEY: process.env.NOODLE_API_KEY || '' },
     });
     proxy.on('close', (code) => {
         if (shuttingDown) return;
