@@ -1,0 +1,39 @@
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+
+const OPENCODE_AUTH_PATH = process.env.OPENCODE_AUTH_PATH ||
+    path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json');
+
+let cachedKey = null;
+
+function getAuth() {
+    // 1) Explicit env var
+    if (process.env.MINIMAX_API_KEY) {
+        return {
+            apiKey: process.env.MINIMAX_API_KEY,
+            source: 'env',
+        };
+    }
+    // 2) opencode auth.json — minimax-coding-plan
+    if (!cachedKey) {
+        try {
+            if (fs.existsSync(OPENCODE_AUTH_PATH)) {
+                const data = JSON.parse(fs.readFileSync(OPENCODE_AUTH_PATH, 'utf8'));
+                const plan = data['minimax-coding-plan'];
+                if (plan && plan.key) {
+                    cachedKey = plan.key;
+                }
+            }
+        } catch (e) { }
+    }
+    if (cachedKey) {
+        return {
+            apiKey: cachedKey,
+            source: 'opencode-coding-plan',
+        };
+    }
+    return null;
+}
+
+module.exports = { getAuth };

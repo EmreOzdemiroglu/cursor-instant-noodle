@@ -1,0 +1,32 @@
+# Dependencies
+node_modules/
+
+# State files (proxy daemon)
+.cursor-noodle.pid
+.cursor-noodle.log
+.cursor-aio.pid
+.cursor-aio.log
+
+# Environment
+.env
+.env.local
+
+# Build output
+dist/
+cloudflared
+*.exe
+*.dmg
+*.zip
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/
+*.swp
+
+# Debug logs
+debug_req.log
+debug_traffic.log

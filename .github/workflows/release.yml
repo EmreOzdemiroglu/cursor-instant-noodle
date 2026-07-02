@@ -1,0 +1,53 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build & Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: latest
+
+      - name: Install dependencies
+        run: npm install --no-audit --no-fund
+
+      - name: Build binaries
+        run: |
+          mkdir -p dist
+          for target in bun-darwin-arm64 bun-darwin-x64 bun-linux-x64 bun-linux-arm64; do
+            binname="cursor-noodle-${target#bun-}.bin"
+            binname="${binname//-/.}"
+            # Friendly archive name
+            case "$target" in
+              bun-darwin-arm64) archive="cursor-noodle-macos-arm64" ;;
+              bun-darwin-x64)   archive="cursor-noodle-macos-x64" ;;
+              bun-linux-x64)    archive="cursor-noodle-linux-x64" ;;
+              bun-linux-arm64)  archive="cursor-noodle-linux-arm64" ;;
+            esac
+            echo "→ Building $target"
+            bun build --compile --target="$target" --outfile="dist/${archive}.bin" bin/cursor-noodle.cjs
+            (cd dist && mv "${archive}.bin" "${archive}" && tar -czf "${archive}.tar.gz" "${archive}")
+            rm -f "dist/${archive}"
+          done
+
+      - name: Checksums
+        run: (cd dist && sha256sum *.tar.gz > SHA256SUMS)
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*.tar.gz
+            dist/SHA256SUMS

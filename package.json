@@ -1,0 +1,72 @@
+{
+  "name": "cursor-instant-noodle",
+  "version": "0.0.1",
+  "description": "Cursor on an instant-noodle budget \ud83c\udf5c \u2014 use Antigravity, Codex, z.ai, MiniMax, Opencode, LMStudio & more for free or cheap",
+  "type": "module",
+  "license": "MIT",
+  "author": "Emre Ozdemiroglu",
+  "homepage": "https://github.com/EmreOzdemiroglu/cursor-instant-noodle",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/EmreOzdemiroglu/cursor-instant-noodle.git"
+  },
+  "bugs": {
+    "url": "https://github.com/EmreOzdemiroglu/cursor-instant-noodle/issues"
+  },
+  "keywords": [
+    "cursor",
+    "openai",
+    "proxy",
+    "ai",
+    "antigravity",
+    "codex",
+    "glm",
+    "zai",
+    "minimax",
+    "opencode",
+    "lmstudio",
+    "llama-cpp",
+    "llm"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "bin": {
+    "cursor-noodle": "./bin/cursor-noodle.cjs"
+  },
+  "files": [
+    "bin/",
+    "lib/",
+    "providers/",
+    "auth/",
+    "scripts/",
+    "start.cjs",
+    "proxy.cjs",
+    "install.sh",
+    "uninstall.sh",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md",
+    "CONTRIBUTING.md",
+    ".env.example"
+  ],
+  "scripts": {
+    "start": "node start.cjs",
+    "postinstall": "node scripts/install-cloudflared.cjs",
+    "dev": "node bin/cursor-noodle.cjs",
+    "build": "bun build --compile --target=bun-darwin-arm64 --outfile=dist/cursor-noodle bin/cursor-noodle.cjs",
+    "build:macos-arm64": "bun build --compile --target=bun-darwin-arm64 --outfile=dist/cursor-noodle-macos-arm64 bin/cursor-noodle.cjs",
+    "build:macos-x64": "bun build --compile --target=bun-darwin-x64   --outfile=dist/cursor-noodle-macos-x64   bin/cursor-noodle.cjs",
+    "build:linux-x64": "bun build --compile --target=bun-linux-x64     --outfile=dist/cursor-noodle-linux-x64   bin/cursor-noodle.cjs",
+    "build:linux-arm64": "bun build --compile --target=bun-linux-arm64   --outfile=dist/cursor-noodle-linux-arm64 bin/cursor-noodle.cjs",
+    "build:all": "npm run build:macos-arm64 && npm run build:macos-x64 && npm run build:linux-x64 && npm run build:linux-arm64"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "chalk": "^4.1.2",
+    "commander": "^11.1.0",
+    "inquirer": "^8.2.6",
+    "ora": "^5.4.1",
+    "boxen": "^5.1.2"
+  }
+}
