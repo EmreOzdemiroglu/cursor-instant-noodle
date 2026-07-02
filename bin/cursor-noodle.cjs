@@ -551,7 +551,7 @@ function removeEnvIndex(envVar, indexToRemove) {
         content = content.replace(re, `${envVar}=${cleaned.join(',')}`);
         process.env[envVar] = cleaned.join(',');
     }
-    fs.writeFileSync(ENV_FILE, content);
+    fs.writeFileSync(ENV_FILE, content, { mode: 0o600 });
     return cleaned;
 }
 
@@ -810,7 +810,7 @@ function writeEnv(values) {
             content += `\n${line}\n`;
         }
     }
-    fs.writeFileSync(ENV_FILE, content);
+    fs.writeFileSync(ENV_FILE, content, { mode: 0o600 });
     for (const [key, value] of Object.entries(values)) {
         if (value === undefined || value === null) continue;
         if (value === '') delete process.env[key];
@@ -839,7 +839,7 @@ function appendEnvKey(envVar, newKey) {
         keys = [newKey];
         content += `\n${envVar}=${newKey}\n`;
     }
-    fs.writeFileSync(ENV_FILE, content);
+    fs.writeFileSync(ENV_FILE, content, { mode: 0o600 });
     process.env[envVar] = keys.join(',');
     return keys;
 }
@@ -865,7 +865,7 @@ function appendEnvValue(envVar, value) {
         values = [value];
         content += `\n${envVar}=${value}\n`;
     }
-    fs.writeFileSync(ENV_FILE, content);
+    fs.writeFileSync(ENV_FILE, content, { mode: 0o600 });
     process.env[envVar] = values.join(',');
     return values;
 }
@@ -886,7 +886,7 @@ function removeEnvKey(envVar, keyToRemove) {
     } else {
         content = content.replace(re, `${envVar}=${keys.join(',')}`);
     }
-    fs.writeFileSync(ENV_FILE, content);
+    fs.writeFileSync(ENV_FILE, content, { mode: 0o600 });
     if (keys.length === 0) delete process.env[envVar];
     else process.env[envVar] = keys.join(',');
     return keys;
@@ -945,17 +945,28 @@ async function cheapmf() {
         validate: (v) => (v && v.trim().startsWith('sk-')) || 'Key should start with "sk-". Try again.',
     }]);
 
-    // Quick smoke test against the Zen free model
+    // Quick smoke test against the Zen free model. We use https.request
+    // (not a curl shell-out) so the user's API key is never interpolated
+    // into a shell string.
     const key = apiKey.trim();
     const spinner = ora({ text: 'Testing key against zen-north-mini-code-free...', color: 'cyan' }).start();
     try {
-        const out = execSync(
-            `curl -s --max-time 30 -X POST https://opencode.ai/zen/v1/chat/completions ` +
-            `-H "Content-Type: application/json" -H "Authorization: Bearer ${key}" ` +
-            `-d '{"model":"north-mini-code-free","messages":[{"role":"user","content":"hi"}],"max_tokens":5}'`,
-            { encoding: 'utf8' }
-        );
-        const data = JSON.parse(out);
+        const data = await new Promise((resolve, reject) => {
+            const body = JSON.stringify({ model: 'north-mini-code-free', messages: [{ role: 'user', content: 'hi' }], max_tokens: 5 });
+            const req = require('https').request('https://opencode.ai/zen/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${key}`, 'Content-Length': Buffer.byteLength(body) },
+                timeout: 30000,
+            }, (res) => {
+                let out = '';
+                res.on('data', c => out += c);
+                res.on('end', () => { try { resolve(JSON.parse(out)); } catch (e) { resolve({}); } });
+            });
+            req.on('error', reject);
+            req.on('timeout', () => req.destroy(new Error('timeout')));
+            req.write(body);
+            req.end();
+        });
         spinner.stop();
         if (data.choices && data.choices[0]) {
             console.log(log.success + ' ' + chalk.green('Key works!') + chalk.dim('  (zen-north-mini-code-free responded)'));

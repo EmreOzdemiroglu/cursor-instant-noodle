@@ -29,13 +29,19 @@ console.log('--- Starting Cursor Instant Noodle & Persistent Tunnel ---');
 
 const port = process.env.PORT || '6767';
 
+// Always have an API key on the proxy, even when start.cjs is invoked
+// directly (`node start.cjs`) rather than through the CLI. Without this,
+// an empty .env would run the proxy unauthenticated.
+const { readApiKey, ensureApiKey } = require('./lib/apikey.cjs');
+const noodleApiKey = process.env.NOODLE_API_KEY || readApiKey() || ensureApiKey();
+
 let proxy = null;
 let plannedRestart = false;
 function spawnProxy() {
     proxy = spawn('node', ['proxy.cjs'], {
         stdio: 'inherit',
         cwd: __dirname,
-        env: { ...process.env, PORT: port, NOODLE_API_KEY: process.env.NOODLE_API_KEY || '' },
+        env: { ...process.env, PORT: port, NOODLE_API_KEY: noodleApiKey },
     });
     proxy.on('close', (code) => {
         if (shuttingDown) return;
@@ -90,6 +96,15 @@ async function ensureCloudflared() {
             fs.unlinkSync(tarPath);
         } else {
             await downloadToFile(url, dest);
+        }
+        // Sanity check before we chmod+exec: cloudflared releases are
+        // ~40-90 MB. An HTML error page or a truncated/MITM blob would be
+        // far smaller. Reject anything under 5 MB so we never exec garbage.
+        // (The download is already over HTTPS to github.com, so TLS guards
+        // the bytes in transit; this is a belt-and-suspenders size guard.)
+        const MIN_BYTES = 5 * 1024 * 1024;
+        if (!fs.existsSync(dest) || fs.statSync(dest).size < MIN_BYTES) {
+            throw new Error('downloaded binary failed size sanity check');
         }
         if (platform !== 'win32') fs.chmodSync(dest, 0o755);
         console.log('cloudflared: installed.');

@@ -173,6 +173,8 @@ app.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
 });
 
 const PORT = parseInt(process.env.PORT || '6767', 10);
-app.listen(PORT, () => {
+// Bind to 127.0.0.1 only. cloudflared (started in start.cjs) is the sole
+// public path; we never want the proxy reachable on the LAN / public IP.
+app.listen(PORT, '127.0.0.1', () => {
     console.log(`\n🍜 Cursor Instant Noodle listening on port ${PORT}\n`);
 });
