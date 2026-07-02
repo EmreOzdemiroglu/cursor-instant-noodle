@@ -441,64 +441,181 @@ async function models() {
 }
 
 // ─── Interactive setup ─────────────────────────────────────
+// Each provider's setup step. Returns true on success, false to skip.
+async function stepAntigravity(env) {
+    // Antigravity uses OAuth tokens stored on disk — no API key to enter.
+    const home = os.homedir();
+    const candidates = [
+        path.join(home, '.config', 'opencode', 'antigravity-accounts.json'),
+        path.join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
+    ];
+    const dirs = [path.join(home, '.config', 'opencode'), path.join(home, '.local', 'share', 'opencode')];
+    for (const d of dirs) {
+        try {
+            if (fs.existsSync(d)) {
+                for (const f of fs.readdirSync(d)) {
+                    if (f.startsWith('antigravity-') && f.endsWith('.json')) candidates.push(path.join(d, f));
+                }
+            }
+        } catch (e) {}
+    }
+    for (const p of candidates) {
+        if (!fs.existsSync(p)) continue;
+        try {
+            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+            const accounts = j.accounts || (j.refresh_token ? [j] : []);
+            if (accounts.length > 0) {
+                const a = j.activeIndex != null ? accounts[j.activeIndex] : accounts[0];
+                console.log(`    ${log.success}  Antigravity   ${chalk.green('(detected: ' + (a.email || 'account') + ')')}`);
+                return true;
+            }
+        } catch (e) {}
+    }
+    console.log(`    ${log.warning}  Antigravity   ${chalk.yellow('not detected — install Opencode and sign in once')}`);
+    return false;
+}
+
+async function stepCodex(env) {
+    const p = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex', 'auth.json');
+    if (fs.existsSync(p)) {
+        try {
+            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
+            const t = j.tokens || j;
+            if (t.access_token || t.refresh_token) {
+                let email = null;
+                if (t.id_token) {
+                    try { email = JSON.parse(Buffer.from(t.id_token.split('.')[1] || 'e30=', 'base64').toString()).email; } catch (e) {}
+                }
+                console.log(`    ${log.success}  Codex         ${chalk.green('(detected: ' + (email || 'token') + ')')}`);
+                return true;
+            }
+        } catch (e) {}
+    }
+    console.log(`    ${log.warning}  Codex         ${chalk.yellow('not detected — install codex CLI and sign in')}`);
+    return false;
+}
+
+async function promptKey(name, label, hint) {
+    const r = await inquirer.prompt([{
+        type: 'input',
+        name: 'value',
+        message: chalk.cyan(label) + (hint ? chalk.dim(` (${hint})`) : ''),
+        default: '',
+        validate: v => v === '' || v.length >= 4 || 'Looks too short — paste the full key',
+    }]);
+    if (r.value && r.value.trim()) return r.value.trim();
+    return null;
+}
+
 async function setup() {
     printBanner();
     console.log(chalk.bold('  Setup wizard'));
-    console.log(chalk.dim('  Press Enter to skip any provider.\n'));
-
-    const answers = await inquirer.prompt([
-        {
-            type: 'input',
-            name: 'OPENCODE_ZEN_API_KEY',
-            message: chalk.cyan('Opencode Zen API key') + chalk.dim(' (gpt-5.5, claude-opus-4-8, gemini-3.5-flash...)'),
-            default: '',
-        },
-        {
-            type: 'input',
-            name: 'ZAI_API_KEY',
-            message: chalk.cyan('z.ai / GLM API key') + chalk.dim(' (optional — blank = use opencode fallback)'),
-            default: '',
-        },
-        {
-            type: 'input',
-            name: 'PORT',
-            message: chalk.cyan('Server port'),
-            default: '6767',
-            validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
-        },
-    ]);
-
-    // Detect local auth
-    const agPath = path.join(os.homedir(), '.config', 'opencode', 'antigravity-accounts.json');
-    const codexPath = path.join(os.homedir(), '.codex', 'auth.json');
-    const hasAg = fs.existsSync(agPath);
-    const hasCodex = fs.existsSync(codexPath);
-
+    console.log(chalk.dim('  Pick the providers you want to set up. Skip with Cancel or uncheck everything.'));
+    console.log(chalk.dim('  Keys are written to: ' + ENV_FILE));
     console.log();
-    console.log(chalk.bold('  Detected local auth:'));
-    console.log(`    ${hasAg ? log.success : log.error}   Antigravity   ${hasAg ? chalk.green('(found)') : chalk.dim('(not found)')}`);
-    console.log(`    ${hasCodex ? log.success : log.error}   Codex/ChatGPT  ${hasCodex ? chalk.green('(found)') : chalk.dim('(not found)')}`);
+
+    // First: pick port (cheap, default sane)
+    const portAnswer = await inquirer.prompt([{
+        type: 'input',
+        name: 'PORT',
+        message: chalk.cyan('Server port'),
+        default: '6767',
+        validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
+    }]);
+    console.log();
+
+    // Second: provider checklist
+    const choiceAnswer = await inquirer.prompt([{
+        type: 'checkbox',
+        name: 'providers',
+        message: chalk.cyan('Select providers to configure'),
+        pageSize: 10,
+        loop: false,
+        choices: [
+            { name: 'Antigravity  ' + chalk.dim('(auto-detected — Claude/Gemini/GPT-OSS via Google OAuth)'), value: 'antigravity', checked: true },
+            { name: 'Codex        ' + chalk.dim('(auto-detected — GPT-5.5/5.4 via ChatGPT Plus/Pro)'),          value: 'codex',       checked: true },
+            { name: 'Opencode Zen ' + chalk.dim('(API key — 17 models incl. free tier)'),                       value: 'zen',         checked: true },
+            { name: 'z.ai / GLM   ' + chalk.dim('(API key — glm-5.x)'),                                          value: 'zai',         checked: false },
+            { name: 'minimax      ' + chalk.dim('(API key — minimax coding plan)'),                                value: 'minimax',     checked: false },
+            { name: 'Opencode Go  ' + chalk.dim('(API key — opencode-minimax-m3, opencode-kimi-k2.7)'),            value: 'opencode-go', checked: false },
+            { name: 'Local server ' + chalk.dim('(LM Studio / llama.cpp / Ollama — auto-detected)'),              value: 'local',       checked: false },
+        ],
+    }]);
+    const picked = choiceAnswer.providers || [];
+    console.log();
+
+    const values = { PORT: portAnswer.PORT };
+
+    // Antigravity and Codex: just report what's there (no key entry).
+    if (picked.includes('antigravity')) await stepAntigravity();
+    if (picked.includes('codex'))       await stepCodex();
+
+    // The rest: prompt for the API key.
+    if (picked.includes('zen')) {
+        const k = await promptKey('zen', 'Opencode Zen API key', 'gpt-5.5, claude-opus, deepseek, north, mimo, free models');
+        if (k) values.OPENCODE_ZEN_API_KEY = k;
+        else   console.log(`    ${chalk.dim('- skipped (Opencode Zen)')}`);
+    }
+    if (picked.includes('zai')) {
+        const k = await promptKey('zai', 'z.ai API key', 'GLM models');
+        if (k) values.ZAI_API_KEY = k;
+        else   console.log(`    ${chalk.dim('- skipped (z.ai)')}`);
+    }
+    if (picked.includes('minimax')) {
+        const k = await promptKey('minimax', 'MiniMax API key', 'minimax coding plan');
+        if (k) values.MINIMAX_API_KEY = k;
+        else   console.log(`    ${chalk.dim('- skipped (minimax)')}`);
+    }
+    if (picked.includes('opencode-go')) {
+        const k = await promptKey('opencode-go', 'Opencode Go API key', 'opencode-minimax-m3, opencode-kimi-k2.7');
+        if (k) values.OPENCODE_GO_API_KEY = k;
+        else   console.log(`    ${chalk.dim('- skipped (Opencode Go)')}`);
+    }
+    if (picked.includes('local')) {
+        const portAnswer = await inquirer.prompt([{
+            type: 'input',
+            name: 'port',
+            message: chalk.cyan('Local server port') + chalk.dim(' (1234=LM Studio, 8080=llama.cpp, 11434=Ollama)'),
+            default: '1234',
+            validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
+        }]);
+        // We don't store this — local base URL is auto-detected by the proxy.
+        console.log(`    ${log.success}  Local         ${chalk.green('(auto-detected at runtime)')}`);
+    }
+
     console.log();
 
     // Write .env
+    if (!values.OPENCODE_ZEN_API_KEY && !values.ZAI_API_KEY && !values.MINIMAX_API_KEY && !values.OPENCODE_GO_API_KEY) {
+        const skip = await inquirer.prompt([{
+            type: 'confirm',
+            name: 'ok',
+            message: chalk.yellow('No API keys were entered. Save just the port?'),
+            default: true,
+        }]);
+        if (!skip.ok) {
+            console.log(chalk.dim('  (no changes written)'));
+            return;
+        }
+    }
+
     const spinner = ora({ text: 'Writing .env...', color: 'cyan' }).start();
     try {
         ensureEnvFile();
-        writeEnv(answers);
+        writeEnv(values);
         spinner.stop();
-        console.log(log.success + ' ' + chalk.green('Saved to .env'));
+        console.log(log.success + ' ' + chalk.green('Saved to ' + ENV_FILE));
     } catch (e) {
         spinner.stop();
         console.log(log.error + ' ' + chalk.red(`Failed to write .env: ${e.message}`));
         return;
     }
 
-    console.log(chalk.dim(`  File: ${ENV_FILE}`));
     console.log();
     console.log(chalk.bold('  Next:'));
-    console.log(`    ${chalk.cyan('cursor-noodle start')}     ${chalk.dim('# start the proxy')}`);
-    console.log(`    ${chalk.cyan('cursor-noodle status')}    ${chalk.dim('# show status + tunnel URL')}`);
-    console.log(`    ${chalk.cyan('cursor-noodle models')}    ${chalk.dim('# list available models')}`);
+    console.log(`    ${chalk.cyan('cursor-noodle start')}     ${chalk.dim('# start the proxy + tunnel')}`);
+    console.log(`    ${chalk.cyan('cursor-noodle status')}    ${chalk.dim('# show status, providers, model counts')}`);
+    console.log(`    ${chalk.cyan('cursor-noodle cheapmf')}   ${chalk.dim('# free-tier fast path (Opencode Zen key)')}`);
     console.log();
 }
 
