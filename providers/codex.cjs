@@ -1,7 +1,6 @@
 const https = require('https');
 const crypto = require('crypto');
-const fs = require('fs');
-const { getAuth } = require('../auth/codex.cjs');
+const { getAuthCandidates } = require('../auth/codex.cjs');
 
 const CODEX_BASE_URL = 'chatgpt.com';
 const CODEX_PATH = '/backend-api/codex/responses';
@@ -452,46 +451,58 @@ async function collectFromCodexResponse(remoteRes, originalModel) {
     });
 }
 
+function isRetryableAccountError(statusCode, body) {
+    const msg = String(body || '');
+    if ([401, 403, 429].includes(statusCode)) return true;
+    if (statusCode >= 500) return true;
+    return /quota|rate.?limit|usage.?limit|billing|payment|insufficient|exhausted|not supported with chatgpt account/i.test(msg);
+}
+
+function readResponseBody(remoteRes) {
+    return new Promise(resolve => {
+        let body = '';
+        remoteRes.on('data', c => body += c);
+        remoteRes.on('end', () => resolve(body));
+        remoteRes.on('error', () => resolve(body));
+    });
+}
+
+async function openCodexResponse(auths, body) {
+    const errors = [];
+    for (let i = 0; i < auths.length; i++) {
+        const auth = auths[i];
+        const remoteRes = await codexRequest({ token: auth.access, accountId: auth.accountId, body, stream: true });
+        if (remoteRes.statusCode === 200) return { remoteRes, auth };
+        const errBody = await readResponseBody(remoteRes);
+        errors.push(`account ${i + 1}: Codex ${remoteRes.statusCode}: ${errBody.substring(0, 300)}`);
+        if (!isRetryableAccountError(remoteRes.statusCode, errBody)) break;
+        console.log(`[codex] account ${i + 1} failed (${remoteRes.statusCode}); trying next account`);
+    }
+    const e = new Error(errors.join('\n'));
+    e.statusCode = /429|rate|quota|limit|exhausted/i.test(e.message) ? 429 : (/401|403|auth/i.test(e.message) ? 401 : 500);
+    throw e;
+}
+
 async function chatCompletion({ model, messages, stream, max_tokens, temperature, top_p, tools, tool_choice }, res) {
-    const auth = await getAuth();
-    if (!auth) {
-        const authPath = process.env.CODEX_AUTH_PATH ||
-            require('path').join(require('os').homedir(), '.codex', 'auth.json');
-        const hint = fs.existsSync(authPath)
-            ? `Found ${authPath} but it has no tokens. Sign in again with: codex login`
-            : `No Codex credentials at ${authPath}. Install Codex CLI (npm i -g @openai/codex) and sign in, or set CODEX_AUTH_PATH to a valid auth.json`;
+    const auths = await getAuthCandidates();
+    if (auths.length === 0) {
+        const hint = process.env.CODEX_REFRESH_TOKEN
+            ? 'Noodle-managed Codex credentials are present but could not be refreshed. Run `cursor-noodle setup` and sign in again'
+            : `No Codex credentials found in ~/.cursor-noodle/.env. Run: cursor-noodle setup`;
         throw new Error(`Codex auth unavailable. ${hint}.`);
     }
-    // Codex/ChatGPT requires stream=true; we always stream internally
+    // Codex/ChatGPT requires stream=true; we always stream internally.
     const body = buildRequest({ model, messages, max_tokens, temperature, top_p, tools, tool_choice, stream: true });
+    const { remoteRes } = await openCodexResponse(auths, body);
 
     if (stream) {
+        // Only send streaming headers after an account succeeds. This lets us
+        // silently fail over across accounts without leaking intermediate errors.
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
-        const remoteRes = await codexRequest({ token: auth.access, accountId: auth.accountId, body, stream: true });
-        if (remoteRes.statusCode !== 200) {
-            let errBody = '';
-            remoteRes.on('data', c => errBody += c);
-            remoteRes.on('end', () => {
-                res.write(`data: ${JSON.stringify({ error: { message: `Codex ${remoteRes.statusCode}: ${errBody.substring(0, 300)}` } })}\n\n`);
-                res.write('data: [DONE]\n\n');
-                res.end();
-            });
-            return;
-        }
         streamFromCodexResponse(remoteRes, model, res);
     } else {
-        // Non-streaming: still call with stream=true, then collect
-        const remoteRes = await codexRequest({ token: auth.access, accountId: auth.accountId, body, stream: true });
-        if (remoteRes.statusCode !== 200) {
-            let errBody = '';
-            remoteRes.on('data', c => errBody += c);
-            remoteRes.on('end', () => {
-                res.status(remoteRes.statusCode).json({ error: { message: `Codex ${remoteRes.statusCode}: ${errBody.substring(0, 300)}` } });
-            });
-            return;
-        }
         const final = await collectFromCodexResponse(remoteRes, model);
         res.json(final);
     }

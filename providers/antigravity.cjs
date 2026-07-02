@@ -1,7 +1,7 @@
 const https = require('https');
 const crypto = require('crypto');
 const fs = require('fs');
-const { getAuth } = require('../auth/antigravity.cjs');
+const { getAuthCandidates } = require('../auth/antigravity.cjs');
 
 // Parse Google-style tool calls like read(path="foo") into JSON
 function parseGoogleToolExpression(expr) {
@@ -241,7 +241,10 @@ function makeRequest({ token, project, targetModel, requestObj }) {
             res.on('data', chunk => data += chunk);
             res.on('end', () => {
                 if (res.statusCode !== 200) {
-                    return reject(new Error(`Antigravity ${res.statusCode}: ${data.substring(0, 500)}`));
+                    const err = new Error(`Antigravity ${res.statusCode}: ${data.substring(0, 500)}`);
+                    err.statusCode = res.statusCode;
+                    err.body = data;
+                    return reject(err);
                 }
                 resolve(data);
             });
@@ -274,7 +277,12 @@ function streamRequest({ token, project, targetModel, requestObj }) {
             if (res.statusCode !== 200) {
                 let body = '';
                 res.on('data', chunk => body += chunk);
-                res.on('end', () => reject(new Error(`Antigravity ${res.statusCode}: ${body.substring(0, 500)}`)));
+                res.on('end', () => {
+                    const err = new Error(`Antigravity ${res.statusCode}: ${body.substring(0, 500)}`);
+                    err.statusCode = res.statusCode;
+                    err.body = body;
+                    reject(err);
+                });
                 return;
             }
             resolve(res);
@@ -415,19 +423,63 @@ function makeStreamingTransformer(originalModel) {
     };
 }
 
+function isRetryableAccountError(error) {
+    const status = error?.statusCode;
+    const msg = String(error?.body || error?.message || '');
+    if ([401, 403, 429].includes(status)) return true;
+    if (status >= 500) return true;
+    return /quota|rate.?limit|usage.?limit|billing|payment|insufficient|exhausted|permission|unauthorized|forbidden/i.test(msg);
+}
+
+async function openAntigravityStream(auths, targetModel, requestObj) {
+    const errors = [];
+    for (let i = 0; i < auths.length; i++) {
+        const auth = auths[i];
+        try {
+            const remoteRes = await streamRequest({ token: auth.access, project: auth.projectId, targetModel, requestObj });
+            return { remoteRes, auth };
+        } catch (e) {
+            errors.push(`account ${i + 1}: ${e.message}`);
+            if (!isRetryableAccountError(e)) break;
+            console.log(`[antigravity] account ${i + 1} failed; trying next account`);
+        }
+    }
+    const e = new Error(errors.join('\n'));
+    e.statusCode = /429|rate|quota|limit|exhausted/i.test(e.message) ? 429 : (/401|403|auth|unauthorized|forbidden/i.test(e.message) ? 401 : 500);
+    throw e;
+}
+
+async function openAntigravityBody(auths, targetModel, requestObj) {
+    const errors = [];
+    for (let i = 0; i < auths.length; i++) {
+        const auth = auths[i];
+        try {
+            const body = await makeRequest({ token: auth.access, project: auth.projectId, targetModel, requestObj });
+            return { body, auth };
+        } catch (e) {
+            errors.push(`account ${i + 1}: ${e.message}`);
+            if (!isRetryableAccountError(e)) break;
+            console.log(`[antigravity] account ${i + 1} failed; trying next account`);
+        }
+    }
+    const e = new Error(errors.join('\n'));
+    e.statusCode = /429|rate|quota|limit|exhausted/i.test(e.message) ? 429 : (/401|403|auth|unauthorized|forbidden/i.test(e.message) ? 401 : 500);
+    throw e;
+}
+
 async function chatCompletion({ model, messages, stream, max_tokens, temperature, top_p, top_k, stop, tools, tool_choice }, res) {
-    const auth = await getAuth();
-    if (!auth) {
-        throw new Error('Antigravity auth unavailable. Run `agy` and log in.');
+    const auths = await getAuthCandidates();
+    if (auths.length === 0) {
+        throw new Error('Antigravity auth unavailable. Run `cursor-noodle setup` and sign in.');
     }
     const targetModel = MODEL_MAPPING[model] || model;
     const requestObj = buildRequest({ targetModel, originalModel: model, messages, max_tokens, temperature, top_p, top_k, stop, tools, tool_choice });
 
     if (stream) {
+        const { remoteRes } = await openAntigravityStream(auths, targetModel, requestObj);
         res.setHeader('Content-Type', 'text/event-stream');
         res.setHeader('Cache-Control', 'no-cache');
         res.setHeader('Connection', 'keep-alive');
-        const remoteRes = await streamRequest({ token: auth.access, project: auth.projectId, targetModel, requestObj });
         const transformer = makeStreamingTransformer(model);
         transformer.setOnChunk(evt => res.write(`data: ${JSON.stringify(evt)}\n\n`));
         remoteRes.on('data', chunk => transformer.processChunk(chunk));
@@ -441,7 +493,7 @@ async function chatCompletion({ model, messages, stream, max_tokens, temperature
             res.end();
         });
     } else {
-        const body = await makeRequest({ token: auth.access, project: auth.projectId, targetModel, requestObj });
+        const { body } = await openAntigravityBody(auths, targetModel, requestObj);
         let fullText = '';
         let toolCalls = [];
         const lines = body.split('\n');

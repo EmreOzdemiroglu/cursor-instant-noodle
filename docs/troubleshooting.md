@@ -18,16 +18,17 @@ Port 6767 is taken. Either:
 - Find and kill the old process: `lsof -ti :6767 | xargs kill -9`
 - Or change the port: `PORT=7000 cursor-noodle start` (also update Cursor's base URL)
 
-## "No auth found. Set GEMINI_API_KEY or install the Antigravity extension."
+## "No auth found" / OAuth unavailable
 
-Antigravity's auth file wasn't found at `~/.config/opencode/antigravity-accounts.json`. To fix:
+Run:
 
-1. Install the Antigravity VS Code extension, **or**
-2. Install the `agy` CLI and run it to log in: `brew install agy` or `curl -fsSL https://agy.ai/install.sh | bash`
-3. Log in with your Google account
-4. The proxy will pick up the credentials automatically
+```bash
+cursor-noodle setup
+```
 
-You can also use any other model that doesn't need Antigravity (Codex, z.ai, Opencode, local).
+Then pick Codex or Antigravity and sign in from the browser flow. Credentials are written to `~/.cursor-noodle/.env`; if the proxy is already running, run `cursor-noodle restart` after setup.
+
+Codex CLI / opencode / agy auth files are intentionally ignored. Noodle owns its own auth state.
 
 ## "Invalid API key" in Cursor
 
@@ -35,8 +36,8 @@ This is normal. The proxy doesn't check the API key — it just forwards the req
 
 - `OPENCODE_ZEN_API_KEY` is correct in `.env`
 - `ZAI_API_KEY` is correct (or remove it to use the opencode fallback)
-- For Codex: run `codex` to refresh your ChatGPT login
-- For Antigravity: your Google session might have expired; re-login
+- For Codex: run `cursor-noodle setup` and sign in again
+- For Antigravity: run `cursor-noodle setup` and sign in again
 
 ## Tunnel URL keeps changing
 

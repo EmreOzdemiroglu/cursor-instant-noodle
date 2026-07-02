@@ -171,70 +171,20 @@ const path2 = require('path');
 function fileExists(p) { try { return fs2.existsSync(p); } catch (e) { return false; } }
 function readJson(p) { try { return JSON.parse(fs2.readFileSync(p, 'utf8')); } catch (e) { return null; } }
 
-// Codex auth check. Returns { ok, detail, reason } where reason is one of:
-//   'ok'              - account detected
-//   'missing-file'    - auth.json doesn't exist
-//   'unreadable'      - file exists but JSON is malformed
-//   'no-tokens'       - file exists but has no tokens
-//   'empty-file'      - file exists but is empty
 function checkCodex() {
-    const p = process.env.CODEX_AUTH_PATH || path2.join(os2.homedir(), '.codex', 'auth.json');
-    if (!fileExists(p)) return { ok: false, reason: 'missing-file', detail: '~/.codex/auth.json not found' };
-    const raw = fs2.readFileSync(p, 'utf8').trim();
-    if (!raw) return { ok: false, reason: 'empty-file', detail: '~/.codex/auth.json is empty (not signed in)' };
-    let j;
-    try { j = JSON.parse(raw); } catch (e) { return { ok: false, reason: 'unreadable', detail: '~/.codex/auth.json is not valid JSON' }; }
-    // Codex auth has two shapes: {tokens: {access_token, refresh_token}} (chatgpt mode)
-    // or top-level {access_token, refresh_token} (legacy/api-key mode).
-    const t = j.tokens || j;
-    if (!t.access_token && !t.refresh_token) {
-        return { ok: false, reason: 'no-tokens', detail: '~/.codex/auth.json has no tokens (sign in with: codex login)' };
+    const accounts = oauthAccounts('codex');
+    if (accounts.length > 0) {
+        return { ok: true, reason: 'ok', detail: accounts.length === 1 ? accounts[0].label : `${accounts.length} saved accounts` };
     }
-    let email = null;
-    if (t.id_token) {
-        try {
-            const payload = JSON.parse(Buffer.from(t.id_token.split('.')[1] || 'e30=', 'base64').toString());
-            email = payload.email;
-        } catch (e) {}
-    }
-    return { ok: true, reason: 'ok', detail: email || t.account_id || 'token present' };
+    return { ok: false, reason: 'missing-env', detail: 'no saved account (run: cursor-noodle setup)' };
 }
 
 function checkAntigravity() {
-    const home = os2.homedir();
-    const candidates = [
-        path2.join(home, '.config', 'opencode', 'antigravity-accounts.json'),
-        path2.join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
-    ];
-    // Per-account files
-    const dirs = [
-        path2.join(home, '.config', 'opencode'),
-        path2.join(home, '.local', 'share', 'opencode'),
-    ];
-    for (const d of dirs) {
-        try {
-            if (fs2.existsSync(d)) {
-                for (const f of fs2.readdirSync(d)) {
-                    if (f.startsWith('antigravity-') && f.endsWith('.json')) candidates.push(path2.join(d, f));
-                }
-            }
-        } catch (e) {}
+    const accounts = oauthAccounts('antigravity');
+    if (accounts.length > 0) {
+        return { ok: true, reason: 'ok', detail: accounts.length === 1 ? accounts[0].label : `${accounts.length} saved accounts` };
     }
-    for (const p of candidates) {
-        if (!fileExists(p)) continue;
-        const j = readJson(p);
-        if (!j) continue;
-        if (j.accounts && Array.isArray(j.accounts) && j.accounts.length > 0) {
-            const active = j.accounts[j.activeIndex || 0];
-            if (active && active.refreshToken) return { ok: true, reason: 'ok', detail: active.email || `${j.accounts.length} account(s)` };
-        }
-        if (j.refresh_token) return { ok: true, reason: 'ok', detail: j.email || 'refresh token' };
-    }
-    return {
-        ok: false,
-        reason: 'missing-file',
-        detail: 'no antigravity credentials found. Install Opencode (https://opencode.ai) and run: opencode auth login',
-    };
+    return { ok: false, reason: 'missing-env', detail: 'no saved account (run: cursor-noodle setup)' };
 }
 
 function checkOpencode() {
@@ -541,88 +491,200 @@ async function manageApiKey(p) {
     }
 }
 
-// Per-provider help for OAuth providers. Shown when not detected.
-const OAUTH_HELP = {
-    codex: {
-        installCmd: 'npm install -g @openai/codex',
-        signInCmd: 'codex login',
-        signInNote: 'runs you through ChatGPT OAuth and writes ~/.codex/auth.json',
-        authPath: () => process.env.CODEX_AUTH_PATH ||
-            require('path').join(require('os').homedir(), '.codex', 'auth.json'),
-    },
-    antigravity: {
-        installCmd: 'curl -fsSL https://opencode.ai/install | bash',
-        signInCmd: 'opencode auth login',
-        signInNote: 'sign in with your Google account, then enable Antigravity in plugin settings',
-        authPath: () => {
-            const home = require('os').homedir();
-            const candidates = [
-                require('path').join(home, '.config', 'opencode', 'antigravity-accounts.json'),
-                require('path').join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
-            ];
-            for (const p of candidates) if (fileExists(p)) return p;
-            return candidates[0];
-        },
-    },
-};
+function oauthEnvVars(providerId) {
+    if (providerId === 'codex') {
+        return ['CODEX_REFRESH_TOKEN', 'CODEX_ACCESS_TOKEN', 'CODEX_ID_TOKEN', 'CODEX_ACCOUNT_ID', 'CODEX_EMAIL'];
+    }
+    return ['ANTIGRAVITY_REFRESH_TOKEN', 'ANTIGRAVITY_EMAIL', 'ANTIGRAVITY_PROJECT_ID'];
+}
+
+function oauthAccounts(providerId) {
+    const refreshVar = providerId === 'codex' ? 'CODEX_REFRESH_TOKEN' : 'ANTIGRAVITY_REFRESH_TOKEN';
+    const emailVar = providerId === 'codex' ? 'CODEX_EMAIL' : 'ANTIGRAVITY_EMAIL';
+    const projectVar = providerId === 'antigravity' ? 'ANTIGRAVITY_PROJECT_ID' : null;
+    const refresh = readEnvKeys(refreshVar);
+    const emails = readEnvKeys(emailVar);
+    const projects = projectVar ? readEnvKeys(projectVar) : [];
+    return refresh.map((token, index) => {
+        const email = emails[index] && emails[index] !== '_' ? emails[index] : '';
+        const project = projects[index] && projects[index] !== '_' ? projects[index] : '';
+        return {
+            index,
+            token,
+            email,
+            project,
+            label: email || `${providerId === 'codex' ? 'Codex' : 'Antigravity'} account ${index + 1}`,
+        };
+    });
+}
+
+function removeEnvIndex(envVar, indexToRemove) {
+    if (!fs.existsSync(ENV_FILE)) return [];
+    let content = fs.readFileSync(ENV_FILE, 'utf8');
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    const match = content.match(re);
+    if (!match) return [];
+    const values = match[1].split(',').map(s => s.trim());
+    values.splice(indexToRemove, 1);
+    const cleaned = values.filter(Boolean);
+    if (cleaned.length === 0) {
+        content = content.replace(re, '');
+        content = content.replace(/\n\n+/g, '\n\n');
+        delete process.env[envVar];
+    } else {
+        content = content.replace(re, `${envVar}=${cleaned.join(',')}`);
+        process.env[envVar] = cleaned.join(',');
+    }
+    fs.writeFileSync(ENV_FILE, content);
+    return cleaned;
+}
+
+function removeOauthAccount(providerId, index) {
+    for (const envVar of oauthEnvVars(providerId)) {
+        removeEnvIndex(envVar, index);
+    }
+}
+
+async function removeOauthAccountPrompt(providerId) {
+    const accounts = oauthAccounts(providerId);
+    if (accounts.length === 0) {
+        console.log(`    ${log.info}  ${chalk.dim('no saved accounts to remove')}`);
+        return;
+    }
+    const r = await inquirer.prompt([{
+        type: 'list',
+        name: 'index',
+        message: 'Remove which account?',
+        choices: [
+            ...accounts.map(a => ({
+                name: chalk.red(`Remove ${a.index + 1}. ${a.label}`) + (a.project ? chalk.dim(`  (${a.project})`) : ''),
+                value: a.index,
+            })),
+            { name: chalk.dim('Back'), value: '__back__' },
+        ],
+    }]);
+    if (r.index === '__back__') return;
+    const account = accounts.find(a => a.index === r.index);
+    const c = await inquirer.prompt([{
+        type: 'confirm',
+        name: 'ok',
+        message: `Remove ${account?.label || 'this account'}?`,
+        default: false,
+    }]);
+    if (!c.ok) return;
+    removeOauthAccount(providerId, r.index);
+    console.log(`    ${log.success}  ${chalk.yellow(`removed ${account?.label || 'account'}`)}`);
+}
 
 async function manageOauth(p) {
-    const help = OAUTH_HELP[p.id];
-    const status = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+    while (true) {
+        const status = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+        const accounts = oauthAccounts(p.id);
 
-    console.log();
-    console.log(chalk.bold(`  ${p.label}`));
-
-    if (status.ok) {
-        console.log(`    ${log.success}  ${chalk.green('account detected:')} ${chalk.cyan(status.detail)}`);
         console.log();
+        console.log(chalk.bold(`  ${p.label}`));
+        if (status.ok) console.log(`    ${log.success}  ${chalk.green(status.detail)}`);
+        else console.log(`    ${log.warning}  ${chalk.yellow(status.detail)}`);
+        console.log(chalk.dim(`    Accounts are stored in ${ENV_FILE}`));
+        console.log(chalk.dim('    OAuth accounts use sticky failover: account 1 first, then account 2 only if needed.'));
+        console.log();
+
+        if (accounts.length === 0) {
+            console.log(`    ${chalk.dim('No saved accounts yet.')}`);
+        } else {
+            accounts.forEach(a => {
+                const extra = a.project ? chalk.dim(`  project: ${a.project}`) : '';
+                console.log(`    ${chalk.green(String(a.index + 1) + '.')} ${a.label}${extra}`);
+            });
+        }
+        console.log();
+
+        const signInLabel = accounts.length === 0
+            ? (p.id === 'codex' ? 'Sign in with OpenAI / ChatGPT' : 'Sign in with Google for Antigravity')
+            : (p.id === 'codex' ? 'Add another OpenAI / ChatGPT account' : 'Add another Google / Antigravity account');
         const choices = [
-            { name: chalk.dim('Re-check (after you sign out / sign in again)'), value: 'recheck' },
-            { name: chalk.dim('Back'), value: 'back' },
+            { name: chalk.cyan(signInLabel), value: 'login' },
+            { name: chalk.dim('Re-check'), value: 'recheck' },
         ];
+        if (accounts.length > 0) {
+            choices.push({ name: chalk.yellow('Remove a saved account'), value: 'remove_one' });
+        }
+        choices.push({ name: chalk.dim('Back'), value: 'back' });
+
         const r = await inquirer.prompt([{
             type: 'list',
             name: 'action',
             message: 'What next?',
             choices,
         }]);
-        if (r.action === 'recheck') {
+
+        if (r.action === 'back') return;
+        if (r.action === 'login') await loginOauthProvider(p.id);
+        else if (r.action === 'remove_one') await removeOauthAccountPrompt(p.id);
+        else if (r.action === 'recheck') {
             const newStatus = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
-            if (newStatus.ok) console.log(`    ${log.success}  ${chalk.green('still detected:')} ${chalk.cyan(newStatus.detail)}`);
+            if (newStatus.ok) console.log(`    ${log.success}  ${chalk.green(newStatus.detail)}`);
             else console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
         }
-        return;
     }
+}
 
-    // Not detected — show diagnosis + recovery steps.
-    console.log(`    ${log.warning}  ${chalk.yellow(status.detail)}`);
-    console.log();
-    console.log(`    ${chalk.dim('Expected location:')} ${chalk.cyan(help.authPath())}`);
-    console.log();
-    console.log(`    ${chalk.bold('To set up:')}`);
-    console.log(`      1. Install:    ${chalk.cyan(help.installCmd)}`);
-    console.log(`      2. Sign in:    ${chalk.cyan(help.signInCmd)}`);
-    console.log(`         ${chalk.dim(help.signInNote)}`);
-    console.log(`      3. Come back and pick "${chalk.cyan(p.label)}" again to verify`);
-    console.log();
-
-    const choices = [
-        { name: chalk.green('Re-check now'), value: 'recheck' },
-        { name: chalk.dim('Back'), value: 'back' },
-    ];
-    const r = await inquirer.prompt([{
-        type: 'list',
-        name: 'action',
-        message: 'What next?',
-        choices,
-    }]);
-    if (r.action === 'recheck') {
-        const newStatus = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
-        if (newStatus.ok) {
-            console.log(`    ${log.success}  ${chalk.green('account detected:')} ${chalk.cyan(newStatus.detail)}`);
-        } else {
-            console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
+async function loginOauthProvider(providerId) {
+    const { codexDeviceLogin, antigravityGoogleLogin } = require('../lib/oauth-login.cjs');
+    const spinner = ora({ text: 'Starting login...', color: 'cyan' }).start();
+    try {
+        if (providerId === 'codex') {
+            spinner.stop();
+            const result = await codexDeviceLogin({
+                onCode: ({ verifyUrl, userCode }) => {
+                    console.log();
+                    console.log(`    ${chalk.bold('OpenAI / ChatGPT login')}`);
+                    console.log(`    1. Open: ${chalk.cyan(verifyUrl)}`);
+                    console.log(`    2. Enter code: ${chalk.bold.cyan(userCode)}`);
+                    console.log(`    ${chalk.dim('Waiting for sign-in...')}`);
+                    console.log();
+                },
+            });
+            writeEnv({ CODEX_CLIENT_ID: result.clientId });
+            appendEnvValue('CODEX_REFRESH_TOKEN', result.refreshToken);
+            appendEnvValue('CODEX_ACCESS_TOKEN', result.accessToken);
+            appendEnvValue('CODEX_ID_TOKEN', result.idToken || '_');
+            appendEnvValue('CODEX_ACCOUNT_ID', result.accountId || '_');
+            appendEnvValue('CODEX_EMAIL', result.email || 'codex');
+            console.log(`    ${log.success}  ${chalk.green('Codex account saved')} ${chalk.dim(result.email || result.accountId || '')}`);
+            console.log(`    ${chalk.dim('Sticky failover accounts:')} ${readEnvKeys('CODEX_REFRESH_TOKEN').length}`);
+            console.log(`    ${chalk.dim('Restart the proxy to load new credentials:')} ${chalk.cyan('cursor-noodle restart')}`);
+            return;
         }
+
+        if (providerId === 'antigravity') {
+            spinner.stop();
+            const result = await antigravityGoogleLogin({
+                onUrl: (url) => {
+                    console.log();
+                    console.log(`    ${chalk.bold('Google / Antigravity login')}`);
+                    console.log(`    Browser should open automatically.`);
+                    console.log(`    If not, open: ${chalk.cyan(url)}`);
+                    console.log(`    ${chalk.dim('Waiting for Google callback on http://localhost:51121/oauth-callback ...')}`);
+                    console.log();
+                },
+            });
+            writeEnv({
+                ANTIGRAVITY_CLIENT_ID: result.clientId,
+                ANTIGRAVITY_CLIENT_SECRET: result.clientSecret,
+            });
+            appendEnvValue('ANTIGRAVITY_REFRESH_TOKEN', result.refreshToken);
+            appendEnvValue('ANTIGRAVITY_EMAIL', result.email || 'antigravity');
+            appendEnvValue('ANTIGRAVITY_PROJECT_ID', result.projectId || 'rising-fact-p41fc');
+            console.log(`    ${log.success}  ${chalk.green('Antigravity account saved')} ${chalk.dim(result.email || '')}`);
+            console.log(`    ${chalk.dim('Project:')} ${result.projectId || 'rising-fact-p41fc'}`);
+            console.log(`    ${chalk.dim('Sticky failover accounts:')} ${readEnvKeys('ANTIGRAVITY_REFRESH_TOKEN').length}`);
+            console.log(`    ${chalk.dim('Restart the proxy to load new credentials:')} ${chalk.cyan('cursor-noodle restart')}`);
+            return;
+        }
+    } catch (e) {
+        spinner.stop();
+        console.log(`    ${log.error}  ${chalk.red(e.message)}`);
     }
 }
 
@@ -630,7 +692,7 @@ async function setup() {
     printBanner();
     console.log(chalk.bold('  Setup'));
     console.log(chalk.dim('  Each row shows the current state. Enter a row to manage it.'));
-    console.log(chalk.dim('  Keys are stored in ' + ENV_FILE + ' and shared across accounts via round-robin.'));
+    console.log(chalk.dim('  Credentials are stored in ' + ENV_FILE + '. API keys use round-robin; OAuth uses sticky failover.'));
     console.log();
 
     // Always-on config: port
@@ -712,6 +774,11 @@ function writeEnv(values) {
         }
     }
     fs.writeFileSync(ENV_FILE, content);
+    for (const [key, value] of Object.entries(values)) {
+        if (value === undefined || value === null) continue;
+        if (value === '') delete process.env[key];
+        else process.env[key] = String(value);
+    }
 }
 
 // Append a key to a comma-separated list in .env (or create it).
@@ -736,7 +803,34 @@ function appendEnvKey(envVar, newKey) {
         content += `\n${envVar}=${newKey}\n`;
     }
     fs.writeFileSync(ENV_FILE, content);
+    process.env[envVar] = keys.join(',');
     return keys;
+}
+
+// Append a value to a comma-separated list without deduping. Used for OAuth
+// account metadata arrays where duplicate emails/placeholders are valid and
+// positional alignment matters.
+function appendEnvValue(envVar, value) {
+    let content = '';
+    if (fs.existsSync(ENV_FILE)) {
+        content = fs.readFileSync(ENV_FILE, 'utf8');
+    } else if (fs.existsSync(ENV_EXAMPLE)) {
+        content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
+    }
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    let values = [];
+    const match = content.match(re);
+    if (match) {
+        values = match[1].split(',').map(s => s.trim()).filter(Boolean);
+        values.push(value);
+        content = content.replace(re, `${envVar}=${values.join(',')}`);
+    } else {
+        values = [value];
+        content += `\n${envVar}=${value}\n`;
+    }
+    fs.writeFileSync(ENV_FILE, content);
+    process.env[envVar] = values.join(',');
+    return values;
 }
 
 // Remove a key from a comma-separated list. If the list becomes empty,
@@ -756,6 +850,8 @@ function removeEnvKey(envVar, keyToRemove) {
         content = content.replace(re, `${envVar}=${keys.join(',')}`);
     }
     fs.writeFileSync(ENV_FILE, content);
+    if (keys.length === 0) delete process.env[envVar];
+    else process.env[envVar] = keys.join(',');
     return keys;
 }
 

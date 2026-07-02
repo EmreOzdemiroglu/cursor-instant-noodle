@@ -8,8 +8,8 @@ This proxy is a router. It looks at the model name in the request and forwards t
 
 | Provider | Auth | Free? | Models |
 |---|---|---|---|
-| [Antigravity](#antigravity) | auto (opencode accounts) | free | Gemini 3 Flash/Pro, Claude 4.6, GPT-OSS |
-| [Codex / ChatGPT](#codex) | auto (`~/.codex/auth.json`) | with ChatGPT sub | gpt-5.5/x, gpt-5.4/x, gpt-5.4-mini |
+| [Antigravity](#antigravity) | `cursor-noodle setup` OAuth | free | Gemini 3 Flash/Pro, Claude 4.6, GPT-OSS |
+| [Codex / ChatGPT](#codex) | `cursor-noodle setup` OAuth | with ChatGPT sub | gpt-5.5/x, gpt-5.4/x, gpt-5.4-mini |
 | [z.ai / GLM](#zai) | env or opencode | with coding plan | GLM-5.2, GLM-4.6 |
 | [MiniMax](#minimax) | auto (opencode coding plan) | with coding plan | MiniMax-M3, M2.7, M2.5 |
 | [Opencode Zen](#opencode-zen) | `OPENCODE_ZEN_API_KEY` | mostly paid, some free | 50+ models |
@@ -37,9 +37,9 @@ You can add keys via `cursor-noodle setup` → pick the provider → "+ Add a ke
 
 Google's free IDE gives you access to Gemini 3 Pro, Gemini 3 Flash, Claude Sonnet 4.6, Claude Opus 4.6, and others through your Google account. **No API key needed.** This is the cheapest "good" coding model tier.
 
-**Auth source:** `~/.config/opencode/antigravity-accounts.json` (the file written when you log in to the Antigravity VS Code extension or the `agy` CLI).
+**Auth source:** run `cursor-noodle setup`, pick Antigravity, and sign in with Google. Tokens are stored in `~/.cursor-noodle/.env`.
 
-If you don't have it: install the Antigravity VS Code extension and log in with Google. The proxy will pick it up automatically.
+Multiple accounts are supported, but they are **sticky failover**, not per-request round-robin: account 1 is used until it hits auth/quota/rate failure, then account 2 is tried silently.
 
 **Model IDs:**
 - `gemini-3.5-flash-medium` / `-high` / `-low` (display: "Gemini 3.5 Flash")
@@ -56,9 +56,9 @@ If you don't have it: install the Antigravity VS Code extension and log in with 
 
 If you have a ChatGPT Plus or Pro subscription, you can use the latest GPT-5.x models through Cursor via this proxy — no separate OpenAI API key needed.
 
-**Auth source:** `~/.codex/auth.json` (written by the `codex` CLI when you log in).
+**Auth source:** run `cursor-noodle setup`, pick Codex, and sign in with OpenAI / ChatGPT. Tokens are stored in `~/.cursor-noodle/.env`.
 
-If you don't have it: install the `codex` CLI and run `codex` to log in. The proxy will use the stored tokens.
+Multiple accounts are supported, but they are **sticky failover**, not per-request round-robin: account 1 is used until it hits auth/quota/rate failure, then account 2 is tried silently.
 
 **Model IDs (5 reasoning variants for each, plus the mini):**
 - `gpt-5.5-{none,light,medium,high,xhigh}` ← latest, what you'll want most of the time

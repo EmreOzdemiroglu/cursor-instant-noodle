@@ -31,7 +31,7 @@ Instant noodles are the perfect metaphor:
 ## Who is this for
 
 - Students and hobbyists who don't want to pay $20/month for Cursor Pro on top of API costs
-- People who already use Antigravity, agy, or Codex CLI and want to use those models inside Cursor
+- People who want Antigravity and Codex models inside Cursor without installing extra provider CLIs
 - People with a beefy laptop or desktop who want to run local models for free
 - Anyone who wants to A/B test models side-by-side without rewriting their setup
 - The AI-curious who want to see what GLM or Kimi can do without opening 12 accounts

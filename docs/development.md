@@ -14,7 +14,7 @@ cursor-instant-noodle/
 │   └── openai-compatible.cjs # passthrough for everything else
 ├── auth/
 │   ├── antigravity.cjs       # OAuth refresh-token exchange
-│   ├── codex.cjs             # reads ~/.codex/auth.json
+│   ├── codex.cjs             # OAuth refresh-token exchange from ~/.cursor-noodle/.env
 │   └── zai.cjs               # reads opencode auth.json
 ├── proxy.cjs                 # Express server + routing
 ├── start.cjs                 # proxy + cloudflared tunnel

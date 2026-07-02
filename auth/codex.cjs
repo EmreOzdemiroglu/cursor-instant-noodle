@@ -1,36 +1,60 @@
 const fs = require('fs');
-const os = require('os');
-const path = require('path');
 const https = require('https');
+const { parseKeys } = require('../lib/keypool.cjs');
+const { ENV_FILE } = require('../lib/paths.cjs');
 
-const CODEX_AUTH_PATH = process.env.CODEX_AUTH_PATH ||
-    path.join(os.homedir(), '.codex', 'auth.json');
+// Env-only Codex auth. No Codex CLI auth.json fallback: setup owns the state.
+// Account selection is sticky: use account 0 until a provider-level failure,
+// then silently fail over to account 1, etc. This preserves backend cache
+// affinity better than request-by-request round-robin.
+const authCache = new Map();
 
-let cachedAuth = {
-    access: null,
-    refresh: null,
-    idToken: null,
-    accountId: null,
-    expires: 0,
-};
-
-function readAuthFile() {
+function updateEnvList(envVar, index, value) {
+    if (index == null || index < 0 || !value) return;
+    let content = '';
+    try { content = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8') : ''; } catch (e) { return; }
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    const match = content.match(re);
+    const values = match ? match[1].split(',').map(s => s.trim()) : [];
+    while (values.length <= index) values.push('_');
+    values[index] = value;
+    const line = `${envVar}=${values.join(',')}`;
+    content = match ? content.replace(re, line) : content + `\n${line}\n`;
     try {
-        if (!fs.existsSync(CODEX_AUTH_PATH)) return null;
-        const data = JSON.parse(fs.readFileSync(CODEX_AUTH_PATH, 'utf8'));
-        if (data.auth_mode !== 'chatgpt' || !data.tokens) return null;
-        return data.tokens;
-    } catch (e) {
-        return null;
-    }
+        fs.writeFileSync(ENV_FILE, content);
+        process.env[envVar] = values.join(',');
+    } catch (e) {}
 }
 
-function refreshAccessToken(refreshToken) {
+function clean(v) { return v && v !== '_' ? v : ''; }
+
+function listAuthEntries() {
+    const refreshTokens = parseKeys('CODEX_REFRESH_TOKEN');
+    const accessTokens = parseKeys('CODEX_ACCESS_TOKEN');
+    const idTokens = parseKeys('CODEX_ID_TOKEN');
+    const accountIds = parseKeys('CODEX_ACCOUNT_ID');
+    const emails = parseKeys('CODEX_EMAIL');
+    return refreshTokens.map((refresh, index) => ({
+        access_token: clean(accessTokens[index]),
+        refresh_token: refresh,
+        id_token: clean(idTokens[index]),
+        account_id: clean(accountIds[index]),
+        email: clean(emails[index]),
+        source: 'cursor-noodle-env',
+        envIndex: index,
+    })).filter(t => t.refresh_token || t.access_token);
+}
+
+function refreshAccessToken(refreshToken, envIndex = null) {
+    const clientId = process.env.CODEX_CLIENT_ID;
+    if (!clientId) {
+        return Promise.reject(new Error('Codex OAuth client_id missing. Run `cursor-noodle setup` and sign in with Codex.'));
+    }
     return new Promise((resolve, reject) => {
         const body = new URLSearchParams({
             grant_type: 'refresh_token',
             refresh_token: refreshToken,
-            client_id: '__REMOVED_CODEX_OAUTH_CLIENT_ID__',  // Codex CLI client_id
+            client_id: clientId,
             scope: 'openid profile email offline_access',
         }).toString();
         const req = https.request('https://auth.openai.com/oauth/token', {
@@ -43,20 +67,11 @@ function refreshAccessToken(refreshToken) {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     try {
                         const parsed = JSON.parse(data);
-                        // Persist new tokens
-                        const authFile = readAuthFile();
-                        if (authFile) {
-                            const updated = {
-                                ...JSON.parse(fs.readFileSync(CODEX_AUTH_PATH, 'utf8')),
-                                tokens: {
-                                    ...authFile,
-                                    access_token: parsed.access_token || authFile.access_token,
-                                    id_token: parsed.id_token || authFile.id_token,
-                                    refresh_token: parsed.refresh_token || refreshToken,
-                                },
-                                last_refresh: new Date().toISOString(),
-                            };
-                            try { fs.writeFileSync(CODEX_AUTH_PATH, JSON.stringify(updated, null, 2)); } catch (e) { }
+                        if (envIndex != null) {
+                            updateEnvList('CODEX_ACCESS_TOKEN', envIndex, parsed.access_token);
+                            updateEnvList('CODEX_ID_TOKEN', envIndex, parsed.id_token);
+                            updateEnvList('CODEX_ACCOUNT_ID', envIndex, parsed.account_id);
+                            updateEnvList('CODEX_REFRESH_TOKEN', envIndex, parsed.refresh_token || refreshToken);
                         }
                         resolve(parsed);
                     } catch (e) { reject(new Error('Parse error: ' + data)); }
@@ -71,37 +86,73 @@ function refreshAccessToken(refreshToken) {
     });
 }
 
-async function getAuth() {
-    // Check if we have a valid cached access token (1 hour validity)
-    if (cachedAuth.access && cachedAuth.expires > Date.now() + 5 * 60 * 1000) {
-        return cachedAuth;
-    }
-    const tokens = readAuthFile();
-    if (!tokens || !tokens.access_token) {
-        return null;
+async function getAuthForEntry(tokens) {
+    if (!tokens || (!tokens.access_token && !tokens.refresh_token)) return null;
+    const cacheKey = tokens.refresh_token || tokens.access_token;
+    const cached = authCache.get(cacheKey);
+    if (cached && cached.expires > Date.now() + 5 * 60 * 1000) return cached;
+
+    if (!tokens.access_token && tokens.refresh_token) {
+        try {
+            const parsed = await refreshAccessToken(tokens.refresh_token, tokens.envIndex);
+            const auth = {
+                access: parsed.access_token,
+                idToken: parsed.id_token || tokens.id_token,
+                accountId: parsed.account_id || tokens.account_id,
+                refresh: parsed.refresh_token || tokens.refresh_token,
+                email: tokens.email,
+                index: tokens.envIndex,
+                source: tokens.source,
+                expires: Date.now() + 50 * 60 * 1000,
+            };
+            authCache.set(auth.refresh || cacheKey, auth);
+            return auth;
+        } catch (e) {
+            console.error('[codex] refresh failed:', e.message);
+            return null;
+        }
     }
 
-    // Try the cached access token first
-    cachedAuth.access = tokens.access_token;
-    cachedAuth.idToken = tokens.id_token;
-    cachedAuth.accountId = tokens.account_id;
-    cachedAuth.refresh = tokens.refresh_token;
-    cachedAuth.expires = Date.now() + 50 * 60 * 1000;  // assume 50 min
+    const auth = {
+        access: tokens.access_token,
+        idToken: tokens.id_token,
+        accountId: tokens.account_id,
+        refresh: tokens.refresh_token,
+        email: tokens.email,
+        index: tokens.envIndex,
+        source: tokens.source,
+        expires: Date.now() + 50 * 60 * 1000,
+    };
+    authCache.set(cacheKey, auth);
 
-    // If we have a refresh token, proactively refresh in the background
     if (tokens.refresh_token) {
-        refreshAccessToken(tokens.refresh_token)
+        refreshAccessToken(tokens.refresh_token, tokens.envIndex)
             .then(parsed => {
-                cachedAuth.access = parsed.access_token || cachedAuth.access;
-                cachedAuth.idToken = parsed.id_token || cachedAuth.idToken;
-                cachedAuth.refresh = parsed.refresh_token || cachedAuth.refresh;
-                cachedAuth.expires = Date.now() + 50 * 60 * 1000;
+                auth.access = parsed.access_token || auth.access;
+                auth.idToken = parsed.id_token || auth.idToken;
+                auth.accountId = parsed.account_id || auth.accountId;
+                auth.refresh = parsed.refresh_token || auth.refresh;
+                auth.expires = Date.now() + 50 * 60 * 1000;
+                authCache.set(auth.refresh || cacheKey, auth);
                 console.log('[codex] Refreshed access token');
             })
             .catch(e => console.error('[codex] background refresh failed:', e.message));
     }
 
-    return cachedAuth;
+    return auth;
 }
 
-module.exports = { getAuth };
+async function getAuth() {
+    return getAuthForEntry(listAuthEntries()[0]);
+}
+
+async function getAuthCandidates() {
+    const out = [];
+    for (const entry of listAuthEntries()) {
+        const auth = await getAuthForEntry(entry);
+        if (auth) out.push(auth);
+    }
+    return out;
+}
+
+module.exports = { getAuth, getAuthCandidates };
