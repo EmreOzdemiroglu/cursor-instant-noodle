@@ -695,6 +695,12 @@ async function setup() {
     console.log(chalk.dim('  Credentials are stored in ' + ENV_FILE + '. API keys use round-robin; OAuth uses sticky failover.'));
     console.log();
 
+    // Make sure ~/.cursor-noodle and .env exist before any writeEnv() call.
+    // Otherwise the very first action (saving the port) fails with ENOENT
+    // on a fresh machine.
+    ensureDataDir();
+    ensureEnvFile();
+
     // Always-on config: port
     const portAnswer = await inquirer.prompt([{
         type: 'input',
