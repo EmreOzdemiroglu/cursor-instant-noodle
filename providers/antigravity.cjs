@@ -189,8 +189,12 @@ function buildRequest({ targetModel, originalModel, messages, max_tokens, temper
     const seenDecls = new Set();
     if (tools) {
         tools.forEach(t => {
-            declarations.push({ name: t.function.name, description: t.function.description, parameters: t.function.parameters });
-            seenDecls.add(t.function.name);
+            // Cursor sometimes sends tools in OpenAI shape {function: {name,...}},
+            // sometimes flat {name, description, parameters}. Be defensive.
+            const fn = t.function || t;
+            if (!fn || !fn.name) return;
+            declarations.push({ name: fn.name, description: fn.description || '', parameters: fn.parameters || { type: 'object', properties: {} } });
+            seenDecls.add(fn.name);
         });
     }
     usedToolNames.forEach(name => {
@@ -203,9 +207,12 @@ function buildRequest({ targetModel, originalModel, messages, max_tokens, temper
         requestObj.tools = [{ functionDeclarations: declarations }];
     }
     if (tool_choice && typeof tool_choice === 'object') {
-        requestObj.toolConfig = {
-            functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [tool_choice.function.name] },
-        };
+        const choiceName = (tool_choice.function && tool_choice.function.name) || tool_choice.name;
+        if (choiceName) {
+            requestObj.toolConfig = {
+                functionCallingConfig: { mode: 'ANY', allowedFunctionNames: [choiceName] },
+            };
+        }
     }
 
     return requestObj;
@@ -281,6 +288,7 @@ function streamRequest({ token, project, targetModel, requestObj }) {
 // Parse the SSE response from antigravity into OpenAI chat completion chunks
 function makeStreamingTransformer(originalModel) {
     let sentToolCallIds = new Set();
+    let anyToolCallEmitted = false;  // Antigravity often returns finishReason=STOP even when it called a tool; track manually.
     let lastUsageMetadata = null;
     let buffer = '';
     let onChunk = null;
@@ -324,6 +332,7 @@ function makeStreamingTransformer(originalModel) {
                                     .digest('hex');
                                 if (!sentToolCallIds.has(callHash)) {
                                     sentToolCallIds.add(callHash);
+                                    anyToolCallEmitted = true;
                                     const callId = 'call_' + crypto.randomUUID().substring(0, 8);
                                     const argsStr = JSON.stringify(part.functionCall.args || {});
                                     // Start
@@ -357,9 +366,16 @@ function makeStreamingTransformer(originalModel) {
                             }
                         }
                         if (finishReason) {
-                            const mapped = finishReason === 'STOP' ? 'stop' :
-                                finishReason === 'TOOL_USE' ? 'tool_calls' :
-                                finishReason === 'MAX_TOKENS' ? 'length' : finishReason;
+                            // If we emitted any tool calls in this response, the real
+                            // finish_reason is tool_calls even if Antigravity said STOP.
+                            let mapped;
+                            if (anyToolCallEmitted) {
+                                mapped = finishReason === 'MAX_TOKENS' ? 'length' : 'tool_calls';
+                            } else {
+                                mapped = finishReason === 'STOP' ? 'stop' :
+                                    finishReason === 'TOOL_USE' ? 'tool_calls' :
+                                    finishReason === 'MAX_TOKENS' ? 'length' : finishReason;
+                            }
                             if (onChunk) onChunk({
                                 id: 'chatcmpl-' + crypto.randomUUID(),
                                 object: 'chat.completion.chunk',
