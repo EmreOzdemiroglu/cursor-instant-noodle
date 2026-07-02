@@ -25,15 +25,15 @@ Open Cursor → **Models** → **+ Add Custom Model** and paste the ID from the 
 | `n-zen-north-mini-code-free` | Opencode Zen | Free forever |
 | `n-zen-mimo-v2.5-free` | Opencode Zen | Free forever |
 | `n-zen-deepseek-v4-flash-free` | Opencode Zen | Free forever |
-| `n-lmstudio:<model>` | LMStudio | Whatever you have loaded locally |
-| `n-llamacpp:<model>` | llama.cpp | Whatever you are serving locally |
-| `n-unsloth:<model>` | Unsloth | Whatever you are serving locally |
+| `n-lmstudio:<model>` | LMStudio | Whatever you have loaded locally (e.g. `n-lmstudio:qwen3.6-27b`) |
+| `n-llamacpp:<model>` | llama.cpp | Whatever you are serving locally (e.g. `n-llamacpp:qwen3.6-27b`) |
+| `n-unsloth:<model>` | Unsloth | Whatever you are serving locally (e.g. `n-unsloth:qwen3.6-27b`) |
 
 ### Paid — need credits or subscription
 
 | Paste in Cursor | Backend | Approx. cost |
 |---|---|---|
-| `n-gpt-5.5` / `n-gpt-5.1-codex` / `n-gpt-5-codex` | Codex | ChatGPT Plus/Pro sub |
+| `n-gpt-5.5` / `n-gpt-5.4` / `n-gpt-5.4-mini` | Codex | ChatGPT Plus/Pro sub |
 | `n-zen-gpt-5.5` / `n-zen-gpt-5.5-pro` | Opencode Zen | pay-per-token |
 | `n-zen-claude-opus-4-8` / `n-zen-claude-opus-4-6` | Opencode Zen | pay-per-token |
 | `n-zen-claude-sonnet-4-6` | Opencode Zen | (also free via Antigravity) |
@@ -61,7 +61,7 @@ Fast, capable, free. The noodles that get the job done.
 **Hard problems / architecture:** `n-claude-sonnet-4-6` (Antigravity, free) or `n-zen-gpt-5.5` (paid)
 Both are excellent at multi-step reasoning and large refactors.
 
-**Local / offline / no internet:** `n-lmstudio:qwen2.5-coder-32b` or whatever you have loaded
+**Local / offline / no internet:** `n-lmstudio:qwen3.6-27b` or whatever you have loaded
 Free, private, instant. Quality depends on your hardware.
 
 **Code review / careful refactor:** `n-claude-opus-4-6-thinking` (Antigravity, free)

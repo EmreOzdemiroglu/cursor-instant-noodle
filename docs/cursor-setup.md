@@ -48,7 +48,7 @@ Click **+ Add Custom Model** and type the model ID (with the `n-` prefix). A few
 | `n-minimax-m3` | MiniMax | with coding plan |
 | `n-zen-claude-opus-4-6` | Opencode Zen | credits |
 | `n-zen-north-mini-code-free` | Opencode Zen | free |
-| `n-lmstudio:qwen2.5-coder-32b` | LMStudio | free (local) |
+| `n-lmstudio:qwen3.6-27b` | LMStudio | free (local) |
 | `n-llamacpp:qwen2.5-coder-32b` | llama.cpp | free (local) |
 
 Run `cursor-noodle models` to see the full list. Toggle each custom model **ON** to enable it.

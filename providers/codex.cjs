@@ -16,6 +16,7 @@ const DEFAULT_MODELS = {
     'gpt-5-codex': 'gpt-5-codex',
     'codex': 'gpt-5.5',
     'codex-1': 'codex-1',
+    'gpt-5.4-mini': 'gpt-5.4-mini',
 };
 
 // Convert chat completions messages to codex responses input
@@ -75,12 +76,17 @@ function buildRequest({ model, messages, max_tokens, temperature, top_p, tools, 
     const sysMsgs = messages.filter(m => m.role === 'system');
     const instructions = sysMsgs.map(m => m.content).join('\n\n') || undefined;
 
-    const codexTools = (tools || []).map(t => ({
-        type: 'function',
-        name: t.function.name,
-        description: t.function.description,
-        parameters: t.function.parameters,
-    }));
+    const codexTools = (tools || []).map(t => {
+        // Cursor (and some clients) send tools in slightly different shapes.
+        // Be defensive: support {function: {name,...}} and {name, ...} flat.
+        const fn = t.function || t;
+        return {
+            type: 'function',
+            name: fn.name,
+            description: fn.description || '',
+            parameters: fn.parameters || { type: 'object', properties: {} },
+        };
+    }).filter(t => t.name);
 
     const req = {
         model: DEFAULT_MODELS[model] || model,

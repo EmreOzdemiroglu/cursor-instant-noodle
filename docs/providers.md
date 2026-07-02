@@ -9,7 +9,7 @@ This proxy is a router. It looks at the model name in the request and forwards t
 | Provider | Auth | Free? | Models |
 |---|---|---|---|
 | [Antigravity](#antigravity) | auto (opencode accounts) | free | Gemini 3 Flash/Pro, Claude 4.6, GPT-OSS |
-| [Codex / ChatGPT](#codex) | auto (`~/.codex/auth.json`) | with ChatGPT sub | gpt-5.5, gpt-5.1-codex |
+| [Codex / ChatGPT](#codex) | auto (`~/.codex/auth.json`) | with ChatGPT sub | gpt-5.5, gpt-5.4, gpt-5.4-mini |
 | [z.ai / GLM](#zai) | env or opencode | with coding plan | GLM-5.2, GLM-4.6 |
 | [MiniMax](#minimax) | auto (opencode coding plan) | with coding plan | MiniMax-M3, M2.7, M2.5 |
 | [Opencode Zen](#opencode-zen) | `OPENCODE_ZEN_API_KEY` | mostly paid, some free | 50+ models |
@@ -49,8 +49,8 @@ If you don't have it: install the `codex` CLI and run `codex` to log in. The pro
 
 **Model IDs:**
 - `gpt-5.5` ← latest, what you'll want most of the time
-- `gpt-5.1-codex` ← codex-tuned variant
-- `gpt-5-codex` ← older codex
+- `gpt-5.4` ← solid all-rounder
+- `gpt-5.4-mini` ← faster, cheaper
 
 > The Codex backend requires streaming; the proxy handles this internally. Non-streaming requests are collected and returned as a single response.
 
@@ -137,7 +137,7 @@ Run any GGUF model on your machine via LMStudio. The proxy talks to LMStudio's b
 1. Open LMStudio
 2. Load a model (e.g. Qwen2.5-Coder-32B-Instruct)
 3. Start the local server (default: `http://localhost:1234/v1`)
-4. Use model IDs like `lmstudio:qwen2.5-coder-32b-instruct`
+4. Use model IDs like `lmstudio:qwen3.6-27b`
 
 **Config (in `.env`):**
 ```
@@ -155,7 +155,7 @@ The classic local-inference server. Same OpenAI-compatible protocol.
 
 **Setup:**
 1. Run `./server -m model.gguf --port 8080`
-2. Use model IDs like `llamacpp:llama-3.3-70b`
+2. Use model IDs like `llamacpp:qwen3.6-27b`
 
 **Config:**
 ```

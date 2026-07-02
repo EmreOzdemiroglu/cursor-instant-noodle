@@ -41,8 +41,8 @@ const MODELS = [
 
     // --- Codex (ChatGPT) ---
     { id: 'gpt-5.5', provider: 'codex', name: 'GPT-5.5 (Codex)', desc: 'Latest GPT via ChatGPT', icon: '🍜' },
-    { id: 'gpt-5.1-codex', provider: 'codex', name: 'GPT-5.1 Codex', desc: 'Codex-tuned GPT-5.1', icon: '🍜' },
-    { id: 'gpt-5-codex', provider: 'codex', name: 'GPT-5 Codex', desc: 'Codex-tuned GPT-5', icon: '🍜' },
+    { id: 'gpt-5.4', provider: 'codex', name: 'GPT-5.4 (Codex)', desc: 'GPT-5.4 via ChatGPT', icon: '🍜' },
+    { id: 'gpt-5.4-mini', provider: 'codex', name: 'GPT-5.4 Mini (Codex)', desc: 'Faster, cheaper GPT-5.4', icon: '🍜' },
 
     // --- z.ai (GLM) ---
     { id: 'glm-5.2', provider: 'zai', name: 'GLM-5.2 (z.ai)', desc: 'Latest z.ai flagship', icon: '🇿' },
@@ -84,14 +84,14 @@ const MODELS = [
     { id: 'opencode-hy3-preview', provider: 'opencode', name: 'Opencode · Hy3 Preview', desc: 'Opencode Go', icon: '🍜' },
 
     // --- Local: LMStudio ---
+    { id: 'lmstudio:qwen3.6-27b', provider: 'lmstudio', name: 'LMStudio · Qwen3.6 27B', desc: 'Local', icon: '🍜' },
     { id: 'lmstudio:qwen2.5-coder-32b', provider: 'lmstudio', name: 'LMStudio · Qwen2.5 Coder 32B', desc: 'Local', icon: '🍜' },
-    { id: 'lmstudio:llama-3.3-70b', provider: 'lmstudio', name: 'LMStudio · Llama 3.3 70B', desc: 'Local', icon: '🍜' },
 
     // --- Local: llama.cpp ---
-    { id: 'llamacpp:qwen2.5-coder-32b', provider: 'llamacpp', name: 'llama.cpp · Qwen2.5 Coder 32B', desc: 'Local', icon: '🍜' },
+    { id: 'llamacpp:qwen3.6-27b', provider: 'llamacpp', name: 'llama.cpp · Qwen3.6 27B', desc: 'Local', icon: '🍜' },
 
     // --- Local: Unsloth ---
-    { id: 'unsloth:qwen2.5-coder-32b', provider: 'unsloth', name: 'Unsloth · Qwen2.5 Coder 32B', desc: 'Local', icon: '⚡' },
+    { id: 'unsloth:qwen3.6-27b', provider: 'unsloth', name: 'Unsloth · Qwen3.6 27B', desc: 'Local', icon: '🍜' },
 ];
 
 app.get('/', (req, res) => {
