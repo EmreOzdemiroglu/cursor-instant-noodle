@@ -2,28 +2,50 @@
 
 > **Cursor on an instant-noodle budget.**
 
-A single OpenAI-compatible endpoint that plugs into Cursor and gives it access to models from many different providers — including free and local ones. Use Antigravity's Gemini 3, your local llama.cpp, Opencode Zen, z.ai GLM, MiniMax, Codex, and more, all from the same Cursor dropdown.
+A single OpenAI-compatible endpoint that plugs into Cursor and gives it access to **dozens of models from many different providers** — including ones Cursor doesn't ship, free models, and your own local server. Antigravity Gemini 3, Opencode Zen, z.ai GLM, MiniMax, Codex reasoning variants, Qwen on your RTX 3090 — all from the same Cursor dropdown.
+
+![Cursor on an instant-noodle budget](assets/cursor-ramen-new.png)
+
+## What you see in Cursor
+
+After `cursor-noodle start`, the Models panel in Cursor fills up with custom models from every provider you've configured. **Every model ID starts with `n-`** (for noodle) so it never collides with Cursor's built-in names.
+
+![Cursor models populated by noodle](assets/cursor-modelpicker.png)
+
+In the screenshot above (one account on each provider), the dropdown includes:
+
+- **GPT-5.5 with 5 reasoning variants** — `n-gpt-5.5-none`, `n-gpt-5.5-light`, `n-gpt-5.5-medium`, `n-gpt-5.5-high`, `n-gpt-5.5-xhigh`. Cursor only ships the default; you can pick the exact reasoning depth for the task.
+- **Gemini 3 Pro & 3.5 Flash** — `n-gemini-3.1-pro-high`, `n-gemini-3.5-flash-medium`, etc., routed through your free Antigravity Google account.
+- **Claude Sonnet 4.6 / Opus 4.6** — `n-claude-sonnet-4-6`, `n-claude-opus-4-6-thinking` via Opencode Zen (one API key, not a separate Anthropic sub).
+- **GLM-5.2 / GLM-4.6** — `n-glm-5.2`, `n-glm-4.6` via z.ai's flat-rate coding plan, or via Opencode Go with no Chinese card needed.
+- **MiniMax-M3** — `n-minimax-m3` for fast cheap drafts.
+- **Free models** — `n-zen-big-pickle`, `n-zen-deepseek-v4-flash-free`, `n-zen-mimo-v2.5-free` (no payment method, no rate-limit dance).
+- **Local models** — `n-llamacpp:qwen3.6-27b` against your own server, no API key, no quota.
+
+You can mix and match. A session can use Gemini 3 Pro for planning, Claude Opus for the hard refactor, GLM-5.2 for bulk edits, and your local 70B for the privacy-sensitive bits — without ever leaving Cursor.
+
+## Architecture
 
 ```
 Cursor ──► https://<random>.trycloudflare.com/v1
               │
               ▼ cloudflared tunnel (HTTPS)
-          http://localhost:6767/v1 ──►  Antigravity  (Google, free)
-                                         Codex      (ChatGPT sub)
-                                         z.ai       (GLM coding plan)
-                                         MiniMax    (MiniMax coding plan)
-                                         Opencode   (Zen + Go)
+          http://localhost:6767/v1 ──►  Antigravity  (Google OAuth, free)
+                                         Codex      (ChatGPT OAuth, sticky failover)
+                                         z.ai       (API key, sticky failover)
+                                         MiniMax    (API key, sticky failover)
+                                         Opencode   (Zen + Go, one API key)
                                          LMStudio / llama.cpp / Unsloth  (local)
 ```
 
-![Cursor on an instant-noodle budget](assets/cursor-ramen-new.png)
+The proxy is a thin Express server that:
 
-## Highlights
+- Receives an OpenAI Chat Completions request from Cursor
+- Inspects the `model` field, looks at the `n-` prefix to pick a provider
+- Translates to the provider's native format (only Antigravity and Codex need translation; the rest are passthroughs)
+- Stitches the response back into OpenAI Chat Completions (or SSE) for Cursor
 
-- **Free models that actually work** — Gemini 3 Flash, GPT-OSS, GLM-4.6, MiniMax-M3, all through one Cursor dropdown
-- **Auto-routing** — model ID prefix decides the backend (`n-glm-*` → z.ai, `n-minimax-*` → MiniMax, etc.)
-- **Drop-in OpenAI-compatible** — no Cursor plugin, just paste a base URL
-- **🍜 One CLI** — `cursor-noodle start` runs everything (proxy + public tunnel) in the background
+The full advertised model list lives in [lib/models.cjs](lib/models.cjs) and is served at `/v1/models`, so Cursor's dropdown populates automatically.
 
 ## Install
 
@@ -33,8 +55,8 @@ Requires Node.js 18+.
 
 ```bash
 npm install -g github:EmreOzdemiroglu/cursor-instant-noodle
-cursor-noodle cheapmf     # free-tier fast path: get an Opencode key, use free models
-cursor-noodle start       # start proxy + public tunnel
+cursor-noodle        # first run opens the setup wizard
+cursor-noodle start  # starts the proxy + public tunnel
 ```
 
 **Option B — standalone binary (no Node.js required):**
@@ -56,7 +78,6 @@ node bin/cursor-noodle.cjs start
 
 > `npm install` also fetches the `cloudflared` binary automatically so the public tunnel works out of the box. If that download fails (offline, rate-limited), the local proxy still works — see [troubleshooting](docs/troubleshooting.md).
 
-
 ## Connect Cursor
 
 1. `Cmd + Shift + J` → **Models** → **OpenAI API**
@@ -64,6 +85,17 @@ node bin/cursor-noodle.cjs start
 3. Paste the URL from `cursor-noodle status` (looks like `https://...trycloudflare.com/v1`)
 4. API key: the `instant-noodle-xxxxxxxx` key printed by `cursor-noodle start` (also retrievable with `cursor-noodle key`)
 5. Restart Cursor
+6. Click **+ Add Custom Model** for each one you want. See the [model ID cheat sheet](docs/models.md#model-ids-to-add-in-cursor) for the full list.
+
+## Highlights
+
+- **Free models that actually work** — Gemini 3 Flash, GPT-OSS, GLM-4.6, MiniMax-M3, Zen free tier, all through one Cursor dropdown
+- **GPT-5.5 with 5 reasoning variants** — `none` / `light` / `medium` / `high` / `xhigh` instead of Cursor's single default
+- **Auto-routing** — model ID prefix decides the backend (`n-glm-*` → z.ai, `n-minimax-*` → MiniMax, `n-gemini-*` → Antigravity, etc.)
+- **Drop-in OpenAI-compatible** — no Cursor plugin, just paste a base URL
+- **Multi-account everywhere** — sticky failover across every provider so quota and rate limits don't break your flow
+- **Hot-reload** — edit `~/.cursor-noodle/.env` and the proxy picks it up without a restart
+- **🍜 One CLI** — `cursor-noodle start` runs everything (proxy + public tunnel) in the background
 
 ## API key
 
@@ -80,22 +112,21 @@ Regenerate the key if it ever leaks. The proxy hot-reloads new keys on `.env` ch
 
 Every multi-account provider (Opencode, z.ai, MiniMax, Codex, Antigravity) uses **sticky failover**: account 1 is used until it returns an auth/quota/rate failure, then account 2 is tried silently. The caller only sees an error after every account has been tried. This preserves backend cache affinity and matches the documented behavior in [docs/providers.md](docs/providers.md).
 
-
-That's it. Now open a chat and click **+ Add Custom Model** to add the models you want. Every model ID starts with **`n-`** (for noodle) so it never collides with Cursor's built-in names — e.g. `n-gemini-3.5-flash-medium`, `n-glm-4.6`, `n-minimax-m3`. See the [model ID cheat sheet](docs/models.md#model-ids-to-add-in-cursor) for the full list.
-
 ## Commands
 
 ```bash
-cursor-noodle cheapmf       # free-tier fast path (Opencode key → DeepSeek/MiMo/North free)
-cursor-noodle start         # start proxy + tunnel in the background
-cursor-noodle status        # running state + public tunnel URL
-cursor-noodle models        # list all available models
-cursor-noodle --help        # see all commands (stop, restart, tunnel, logs, setup, uninstall)
+cursor-noodle              # first run: setup wizard; later: starts the proxy
+cursor-noodle cheapmf      # free-tier fast path (Opencode key → DeepSeek/MiMo/North free)
+cursor-noodle start        # start proxy + tunnel in the background
+cursor-noodle status       # running state + public tunnel URL
+cursor-noodle models       # list all available models
+cursor-noodle setup        # re-open the setup wizard
+cursor-noodle restart      # reload after manual .env changes
+cursor-noodle uninstall    # stop, remove global binary, optionally wipe ~/.cursor-noodle/
+cursor-noodle --help       # see every command
 ```
 
-On a fresh machine, just running `cursor-noodle` will open the setup wizard for you. Once at least one provider is configured, it starts the proxy directly.
-
-Uninstall: `cursor-noodle uninstall` (or `npm uninstall -g cursor-instant-noodle`, or the included `uninstall.sh`). The `uninstall` command will ask whether to wipe `~/.cursor-noodle/` (API keys, OAuth tokens, logs) too — keep it if you plan to reinstall later.
+Uninstall: `cursor-noodle uninstall` will ask whether to wipe `~/.cursor-noodle/` (API keys, OAuth tokens, logs) — keep it if you plan to reinstall later. Or run `npm uninstall -g cursor-instant-noodle` directly, or use the included `uninstall.sh`.
 
 ## How it works
 
@@ -105,6 +136,7 @@ Uninstall: `cursor-noodle uninstall` (or `npm uninstall -g cursor-instant-noodle
 4. Antigravity and Codex providers translate OpenAI Chat Completions → their native format
 5. Everything else (z.ai, MiniMax, Opencode, local) is a thin OpenAI passthrough
 6. The full model list is advertised at `/v1/models` so Cursor's dropdown fills up
+7. The proxy hot-reloads when `~/.cursor-noodle/.env` changes (config edits don't interrupt your session)
 
 See [docs/development.md](docs/development.md) for the architecture in detail.
 
