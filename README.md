@@ -136,6 +136,7 @@ See [docs/development.md](docs/development.md) for the architecture in detail.
 - **[Cursor setup](docs/cursor-setup.md)** — step-by-step with details
 - **[Local models](docs/local.md)** — LMStudio / llama.cpp / Unsloth
 - **[Troubleshooting](docs/troubleshooting.md)** — common issues + fixes
+- **[Roadmap](docs/roadmap.md)** — what's next: token optimization, stats, auto router
 - **[Development](docs/development.md)** — build, release, contribute
 
 ## Compatibility
