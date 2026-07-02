@@ -4,6 +4,20 @@
 // corporate proxy, anything), the CLI + local proxy still work fine —
 // only `cursor-noodle tunnel` (public URL) is unavailable. Users can
 // also `brew install cloudflared` or download it manually later.
+
+const fs = require('fs');
+const path = require('path');
+const https = require('https');
+const { execSync } = require('child_process');
+
+const BINARY_NAME = 'cloudflared';
+// Use process.cwd() instead of __dirname: under `npm install -g github:...`
+// npm clones into a temp dir and may not have extracted scripts/ before
+// postinstall runs, so __dirname would point at a missing directory.
+const TARGET_DIR = process.cwd();
+const TARGET_PATH = path.join(TARGET_DIR, BINARY_NAME);
+const { platform, arch } = process;
+
 (async () => {
     try {
         await main();
@@ -15,19 +29,6 @@
         process.exit(0);
     }
 })();
-
-const fs = require('fs');
-const path = require('path');
-const https = require('https');
-const { execSync } = require('child_process');
-const { platform, arch } = process;
-
-const BINARY_NAME = 'cloudflared';
-// Use process.cwd() instead of __dirname: under `npm install -g github:...`
-// npm clones into a temp dir and may not have extracted scripts/ before
-// postinstall runs, so __dirname would point at a missing directory.
-const TARGET_DIR = process.cwd();
-const TARGET_PATH = path.join(TARGET_DIR, BINARY_NAME);
 
 async function main() {
     // Already installed in the package dir -> nothing to do.
