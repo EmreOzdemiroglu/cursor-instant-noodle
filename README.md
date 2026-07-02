@@ -5,12 +5,15 @@
 A single OpenAI-compatible endpoint that plugs into Cursor and gives it access to models from many different providers — including free and local ones. Use Antigravity's Gemini 3, your local llama.cpp, Opencode Zen, z.ai GLM, MiniMax, Codex, and more, all from the same Cursor dropdown.
 
 ```
-Cursor ──► http://localhost:6767/v1 ──►  Antigravity  (Google, free)
-                                        Codex      (ChatGPT sub)
-                                        z.ai       (GLM coding plan)
-                                        MiniMax    (MiniMax coding plan)
-                                        Opencode   (Zen + Go)
-                                        LMStudio / llama.cpp / Unsloth  (local)
+Cursor ──► https://<random>.trycloudflare.com/v1
+              │
+              ▼ cloudflared tunnel (HTTPS)
+          http://localhost:6767/v1 ──►  Antigravity  (Google, free)
+                                         Codex      (ChatGPT sub)
+                                         z.ai       (GLM coding plan)
+                                         MiniMax    (MiniMax coding plan)
+                                         Opencode   (Zen + Go)
+                                         LMStudio / llama.cpp / Unsloth  (local)
 ```
 
 ![Cursor on an instant-noodle budget](assets/cursor-ramen.png)
