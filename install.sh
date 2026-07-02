@@ -122,7 +122,17 @@ install_from_release() {
     tar -xzf "$tmp/$archive" -C "$tmp"
 
     mkdir -p "$INSTALL_DIR"
-    cp "$tmp/$BIN_NAME" "$INSTALL_DIR/$BIN_NAME"
+    # The archive ships a platform-suffixed binary (e.g.
+    # cursor-noodle-macos-arm64); rename it to the canonical name.
+    local extracted=""
+    for candidate in "$tmp/$BIN_NAME" "$tmp/$BIN_NAME-$PLATFORM" "$tmp"/$BIN_NAME-*; do
+        if [ -f "$candidate" ]; then extracted="$candidate"; break; fi
+    done
+    if [ -z "$extracted" ]; then
+        err "Archive did not contain a binary (expected $BIN_NAME or $BIN_NAME-$PLATFORM)"
+        exit 1
+    fi
+    cp "$extracted" "$INSTALL_DIR/$BIN_NAME"
     chmod +x "$INSTALL_DIR/$BIN_NAME"
 }
 
