@@ -693,17 +693,32 @@ async function setup() {
     ensureDataDir();
     ensureEnvFile();
 
-    // Always-on config: port
-    const portAnswer = await inquirer.prompt([{
-        type: 'input',
-        name: 'PORT',
-        message: chalk.cyan('Server port'),
-        default: String(parseInt(process.env.PORT || '6767', 10)),
-        validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
+    // Port: only ask if the user opts in. Default is 6767 and that's what
+    // most users want, so don't make them type a number on every setup run.
+    // First run: port is whatever's in the env file (defaults to 6767).
+    if (!readEnvKeys('PORT').length) writeEnv({ PORT: '6767' });
+    const portAction = await inquirer.prompt([{
+        type: 'list',
+        name: 'choice',
+        message: chalk.cyan(`Server port (current: ${parseInt(process.env.PORT || '6767', 10)})`),
+        choices: [
+            { name: chalk.green('Keep current port'), value: 'keep' },
+            { name: chalk.cyan('Change port'), value: 'change' },
+        ],
     }]);
-    // Persist the port
-    writeEnv({ PORT: portAnswer.PORT });
-    console.log(`    ${log.success}  ${chalk.dim('port saved')}`);
+    if (portAction.choice === 'change') {
+        const portAnswer = await inquirer.prompt([{
+            type: 'input',
+            name: 'PORT',
+            message: chalk.cyan('New server port'),
+            default: String(parseInt(process.env.PORT || '6767', 10)),
+            validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
+        }]);
+        writeEnv({ PORT: portAnswer.PORT });
+        console.log(`    ${log.success}  ${chalk.dim(`port saved (${portAnswer.PORT})`)}`);
+    } else {
+        console.log(`    ${log.info}  ${chalk.dim(`keeping port ${parseInt(process.env.PORT || '6767', 10)}`)}`);
+    }
     console.log();
 
     // Top-level menu loops until the user picks Done
