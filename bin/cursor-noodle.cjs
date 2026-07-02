@@ -162,29 +162,231 @@ function stop() {
     }, 200);
 }
 
+// ─── Provider-connection detection ────────────────────────────────────────
+// Each check is fast (file exists + parse) and runs without loading the proxy.
+const fs2 = require('fs');
+const os2 = require('os');
+const path2 = require('path');
+
+function fileExists(p) { try { return fs2.existsSync(p); } catch (e) { return false; } }
+function readJson(p) { try { return JSON.parse(fs2.readFileSync(p, 'utf8')); } catch (e) { return null; } }
+
+function checkCodex() {
+    const p = process.env.CODEX_AUTH_PATH || path2.join(os2.homedir(), '.codex', 'auth.json');
+    if (!fileExists(p)) return { ok: false, detail: '~/.codex/auth.json not found' };
+    const j = readJson(p);
+    if (!j) return { ok: false, detail: '~/.codex/auth.json unreadable' };
+    // Codex auth has two shapes: {tokens: {access_token, refresh_token}} (chatgpt mode)
+    // or top-level {access_token, refresh_token} (legacy/api-key mode).
+    const t = j.tokens || j;
+    if (!t.access_token && !t.refresh_token) return { ok: false, detail: 'no tokens in ~/.codex/auth.json' };
+    let email = null;
+    if (t.id_token) {
+        try {
+            const payload = JSON.parse(Buffer.from(t.id_token.split('.')[1] || 'e30=', 'base64').toString());
+            email = payload.email;
+        } catch (e) {}
+    }
+    return { ok: true, detail: email || t.account_id || 'token present' };
+}
+
+function checkAntigravity() {
+    const home = os2.homedir();
+    const candidates = [
+        path2.join(home, '.config', 'opencode', 'antigravity-accounts.json'),
+        path2.join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
+    ];
+    // Per-account files
+    const dirs = [
+        path2.join(home, '.config', 'opencode'),
+        path2.join(home, '.local', 'share', 'opencode'),
+    ];
+    for (const d of dirs) {
+        try {
+            if (fs2.existsSync(d)) {
+                for (const f of fs2.readdirSync(d)) {
+                    if (f.startsWith('antigravity-') && f.endsWith('.json')) candidates.push(path2.join(d, f));
+                }
+            }
+        } catch (e) {}
+    }
+    for (const p of candidates) {
+        if (!fileExists(p)) continue;
+        const j = readJson(p);
+        if (!j) continue;
+        if (j.accounts && Array.isArray(j.accounts) && j.accounts.length > 0) {
+            const active = j.accounts[j.activeIndex || 0];
+            if (active && active.refreshToken) return { ok: true, detail: active.email || `${j.accounts.length} account(s)` };
+        }
+        if (j.refresh_token) return { ok: true, detail: j.email || 'refresh token' };
+    }
+    return { ok: false, detail: 'no antigravity credentials found' };
+}
+
+function checkOpencode() {
+    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
+    const j = readJson(authPath);
+    if (!j) return { ok: false, detail: '~/.local/share/opencode/auth.json not found' };
+    const env = process.env;
+    const hasCodingPlan = !!j['opencode'];
+    const hasZen = !!env.OPENCODE_ZEN_API_KEY || !!j['opencode-zen'];
+    const hasGo = !!env.OPENCODE_GO_API_KEY || hasCodingPlan;
+    if (!hasZen && !hasGo && !hasCodingPlan) return { ok: false, detail: 'no zen/go/coding-plan keys' };
+    const labels = [];
+    if (hasZen) labels.push('zen');
+    if (hasGo) labels.push('go');
+    if (hasCodingPlan) labels.push('coding-plan');
+    return { ok: true, detail: labels.join('+') };
+}
+
+function checkZai() {
+    if (process.env.ZAI_API_KEY) return { ok: true, detail: 'ZAI_API_KEY env' };
+    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
+    const j = readJson(authPath);
+    if (j && j['z.ai'] && j['z.ai'].key) return { ok: true, detail: 'z.ai key in opencode auth' };
+    return { ok: false, detail: 'ZAI_API_KEY missing' };
+}
+
+function checkMinimax() {
+    if (process.env.MINIMAX_API_KEY) return { ok: true, detail: 'MINIMAX_API_KEY env' };
+    const authPath = path2.join(os2.homedir(), '.local', 'share', 'opencode', 'auth.json');
+    const j = readJson(authPath);
+    if (j && j['minimax'] && j['minimax'].key) return { ok: true, detail: 'minimax key in opencode auth' };
+    return { ok: false, detail: 'MINIMAX_API_KEY missing' };
+}
+
+// Async local-server probe — runs after status prints the other providers.
+// Returns the first server that accepts a TCP connection within 150ms.
+async function probeLocalAsync() {
+    const net = require('net');
+    const ports = [
+        { port: 1234, name: 'LM Studio' },
+        { port: 8080, name: 'llama.cpp' },
+        { port: 11434, name: 'Ollama' },
+    ];
+    for (const { port, name } of ports) {
+        const reachable = await new Promise(resolve => {
+            const sock = new net.Socket();
+            let done = false;
+            const finish = (v) => { if (!done) { done = true; resolve(v); } };
+            sock.setTimeout(150);
+            sock.once('connect', () => { sock.destroy(); finish(true); });
+            sock.once('timeout', () => { sock.destroy(); finish(false); });
+            sock.once('error', () => finish(false));
+            sock.connect(port, '127.0.0.1');
+        });
+        if (reachable) return { ok: true, detail: `${name} on :${port}` };
+    }
+    return { ok: false, detail: 'no server on :1234/:8080/:11434' };
+}
+
+// Read .env file for env vars that aren't yet in process.env (CLI doesn't load .env)
+function loadEnvFile(envPath) {
+    if (!fileExists(envPath)) return;
+    try {
+        for (const line of fs2.readFileSync(envPath, 'utf8').split('\n')) {
+            const m = line.match(/^\s*([A-Z_][A-Z0-9_]*)\s*=\s*(.+)\s*$/);
+            if (m && !process.env[m[1]]) process.env[m[1]] = m[2].replace(/^['"]|['"]$/g, '');
+        }
+    } catch (e) {}
+}
+
 function status() {
     printBanner();
+    // Load env from data dir so OPENCODE_ZEN_API_KEY etc. are visible to our checks.
+    loadEnvFile(ENV_FILE);
+
     const pid = isRunning();
     const port = PORT();
-    if (pid) {
-        const tunnel = readTunnelFromLog();
-        const table = [
-            [chalk.bold('Status'), chalk.green('running')],
-            [chalk.bold('PID'), String(pid)],
-            [chalk.bold('Port'), String(port)],
-            [chalk.bold('Log'), chalk.dim(LOG_FILE)],
-            [chalk.bold('Local'), chalk.cyan(`http://localhost:${port}/v1`)],
-            [chalk.bold('Tunnel'), tunnel ? chalk.cyan(tunnel) : chalk.dim('(waiting...)')],
-        ];
-        const rows = table.map(([k, v]) => `  ${k.padEnd(8)} ${v}`).join('\n');
-        console.log(rows);
-    } else {
+
+    if (!pid) {
         console.log(`  ${chalk.bold('Status')}  ${chalk.red('stopped')}`);
         console.log(`  ${chalk.bold('Port')}    ${port}`);
         console.log();
         console.log(`  Run ${chalk.cyan('cursor-noodle start')} to start the proxy.`);
+        console.log();
+        return;
     }
+
+    const tunnel = readTunnelFromLog();
+    const header = [
+        [chalk.bold('Status'), chalk.green('running')],
+        [chalk.bold('PID'), String(pid)],
+        [chalk.bold('Port'), String(port)],
+        [chalk.bold('Log'), chalk.dim(LOG_FILE)],
+        [chalk.bold('Local'), chalk.cyan(`http://localhost:${port}/v1`)],
+        [chalk.bold('Tunnel'), tunnel ? chalk.cyan(tunnel) : chalk.dim('(waiting…)')],
+    ];
+    console.log(header.map(([k, v]) => `  ${k.padEnd(8)} ${v}`).join('\n'));
     console.log();
+
+    // ── Provider connection status ────────────────────────────
+    console.log(chalk.bold('Providers'));
+    const providers = [
+        { key: 'antigravity', label: 'Antigravity', check: checkAntigravity },
+        { key: 'codex',       label: 'Codex',       check: checkCodex },
+        { key: 'zai',         label: 'z.ai (GLM)',  check: checkZai },
+        { key: 'minimax',     label: 'minimax',      check: checkMinimax },
+        { key: 'opencode',    label: 'Opencode',    check: checkOpencode },
+    ];
+    const providerStatus = {};
+    for (const p of providers) {
+        const r = p.check();
+        providerStatus[p.key] = r;
+        const tag = r.ok ? chalk.green('OK  ') : chalk.red('MISS');
+        console.log(`  ${tag}  ${p.label.padEnd(14)} ${chalk.dim(r.detail)}`);
+    }
+    // Local server probe runs async so it doesn't block status output.
+    probeLocalAsync().then(r => {
+        providerStatus.local = r;
+        const tag = r.ok ? chalk.green('OK  ') : chalk.yellow('----');
+        console.log(`  ${tag}  ${'Local'.padEnd(14)} ${chalk.dim(r.detail)}`);
+    });
+    console.log();
+
+    // ── Live model counts per provider (from running proxy) ────
+    fetch(`http://localhost:${port}/v1/models`).then(r => r.ok ? r.json() : null).then(data => {
+        if (!data || !data.data) {
+            console.log(`  ${chalk.yellow('(could not fetch model list)')}`);
+            return;
+        }
+        // Bucket by owned_by (provider key from proxy.cjs). Local variants
+        // (lmstudio/llamacpp/unsloth) collapse under 'local'.
+        const buckets = {};
+        const localBucket = 'local';
+        for (const m of data.data) {
+            const b = m.owned_by;
+            const bucket = (b === 'lmstudio' || b === 'llamacpp' || b === 'unsloth') ? localBucket : b;
+            buckets[bucket] = (buckets[bucket] || 0) + 1;
+        }
+        // Map proxy provider keys to status-check keys for the OK/miss tag.
+        const okMap = {
+            'antigravity': providerStatus.antigravity?.ok,
+            'codex':       providerStatus.codex?.ok,
+            'zai':         providerStatus.zai?.ok,
+            'minimax':     providerStatus.minimax?.ok,
+            'zen':         providerStatus.opencode?.ok,
+            'opencode':    providerStatus.opencode?.ok,
+            'local':       providerStatus.local?.ok,
+        };
+        const order = ['antigravity', 'codex', 'zai', 'minimax', 'zen', 'opencode', 'local'];
+        const seen = new Set();
+        for (const k of order) {
+            if (buckets[k] != null) {
+                const ok = okMap[k];
+                const tag = ok ? chalk.green('OK  ') : (ok === false ? chalk.yellow('keys') : chalk.dim('??   '));
+                console.log(`  ${tag}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
+                seen.add(k);
+            }
+        }
+        for (const k of Object.keys(buckets)) {
+            if (!seen.has(k)) console.log(`  ${chalk.dim('     ')}  ${k.padEnd(14)} ${buckets[k]} model(s)`);
+        }
+        console.log();
+        console.log(chalk.dim(`  Total: ${data.data.length} model(s) advertised · cursor-noodle models`));
+    }).catch(err => {
+        console.log(`  ${chalk.yellow('(could not fetch model list: ' + err.message + ')')}`);
+    });
 }
 
 function logs() {
