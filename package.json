@@ -52,7 +52,6 @@
   ],
   "scripts": {
     "start": "node start.cjs",
-    "postinstall": "node ./postinstall-cloudflared.cjs",
     "dev": "node bin/cursor-noodle.cjs",
     "build": "bun build --compile --target=bun-darwin-arm64 --outfile=dist/cursor-noodle bin/cursor-noodle.cjs",
     "build:macos-arm64": "bun build --compile --target=bun-darwin-arm64 --outfile=dist/cursor-noodle-macos-arm64 bin/cursor-noodle.cjs",

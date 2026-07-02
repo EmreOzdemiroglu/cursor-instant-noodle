@@ -48,7 +48,12 @@ spawnProxy();
 
 function resolveCloudflared() {
     const bundled = path.join(__dirname, 'cloudflared');
-    if (fs.existsSync(bundled) && fs.accessSync(bundled, fs.constants.X_OK) === undefined) return bundled;
+    if (fs.existsSync(bundled)) {
+        try {
+            fs.accessSync(bundled, fs.constants.X_OK);
+            return bundled;
+        } catch (e) { /* not executable */ }
+    }
     try {
         const { execSync } = require('child_process');
         const onPath = execSync('command -v cloudflared', { encoding: 'utf8' }).trim();
@@ -57,9 +62,85 @@ function resolveCloudflared() {
     return null;
 }
 
-const cloudflaredPath = resolveCloudflared();
+// Lazy cloudflared download: if neither bundled nor on PATH, try to fetch
+// the matching release tarball on demand. Best-effort — if the network
+// fails, the proxy still works at http://localhost:6767/v1 (just no
+// public tunnel).
+async function ensureCloudflared() {
+    if (resolveCloudflared()) return;
+    if (process.env.CURSOR_NOODLE_NO_DOWNLOAD_CLOUDFLARED) return;
+    const { platform, arch } = process;
+    const archMap = { 'x64': 'amd64', 'arm64': 'arm64', 'ia32': '386' };
+    const mappedArch = archMap[arch];
+    if (!mappedArch) return;
+    let url;
+    if (platform === 'darwin') url = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-darwin-${mappedArch}.tgz`;
+    else if (platform === 'linux') url = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-linux-${mappedArch}`;
+    else if (platform === 'win32') url = `https://github.com/cloudflare/cloudflared/releases/latest/download/cloudflared-windows-${mappedArch}.exe`;
+    else return;
+
+    const dest = path.join(__dirname, 'cloudflared');
+    console.log('cloudflared: downloading (one-time, ~20 MB)...');
+    try {
+        if (url.endsWith('.tgz')) {
+            const tarPath = path.join(__dirname, 'cloudflared.tgz');
+            await downloadToFile(url, tarPath);
+            const { execSync } = require('child_process');
+            execSync(`tar -xzf "${tarPath}" -C "${__dirname}"`);
+            fs.unlinkSync(tarPath);
+        } else {
+            await downloadToFile(url, dest);
+        }
+        if (platform !== 'win32') fs.chmodSync(dest, 0o755);
+        console.log('cloudflared: installed.');
+    } catch (e) {
+        console.log(`cloudflared: download failed (${e.message}). Local proxy still works.`);
+    }
+}
+
+function downloadToFile(url, dest) {
+    const https = require('https');
+    return new Promise((resolve, reject) => {
+        const file = fs.createWriteStream(dest);
+        const get = (u) => https.get(u, (response) => {
+            if (response.statusCode === 301 || response.statusCode === 302) {
+                response.resume();
+                get(response.headers.location);
+                return;
+            }
+            if (response.statusCode !== 200) {
+                reject(new Error(`HTTP ${response.statusCode}`));
+                response.resume();
+                return;
+            }
+            response.pipe(file);
+            file.on('finish', () => file.close(resolve));
+        }).on('error', (err) => {
+            fs.unlink(dest, () => {});
+            reject(err);
+        });
+        get(url);
+    });
+}
+
+let cloudflaredPath = resolveCloudflared();
 let tunnel = null;
 let urlFound = false;
+
+// Best-effort lazy download. Doesn't block the proxy from starting.
+ensureCloudflared().then(() => {
+    cloudflaredPath = resolveCloudflared();
+    if (cloudflaredPath) spawnTunnel();
+    else {
+        console.log('cloudflared not found — public tunnel disabled.');
+        console.log('Local proxy still works at http://localhost:' + port + '/v1');
+        console.log('Install cloudflared for a public URL:  brew install cloudflared  |  https://github.com/cloudflare/cloudflared/releases');
+    }
+}).catch(() => {
+    console.log('cloudflared not found — public tunnel disabled.');
+    console.log('Local proxy still works at http://localhost:' + port + '/v1');
+    console.log('Install cloudflared for a public URL:  brew install cloudflared  |  https://github.com/cloudflare/cloudflared/releases');
+});
 
 function spawnTunnel() {
     if (!cloudflaredPath) return;
@@ -83,14 +164,6 @@ function spawnTunnel() {
         if (shuttingDown) return;
         console.log(`Tunnel exited with code ${code}`);
     });
-}
-
-if (cloudflaredPath) {
-    spawnTunnel();
-} else {
-    console.log('cloudflared not found — public tunnel disabled.');
-    console.log('Local proxy still works at http://localhost:' + port + '/v1');
-    console.log('Install cloudflared for a public URL:  brew install cloudflared  |  https://github.com/cloudflare/cloudflared/releases');
 }
 
 // ─── .env hot reload ─────────────────────────────────────────────────────
