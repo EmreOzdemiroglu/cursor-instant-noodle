@@ -217,10 +217,26 @@ app.post(['/v1/chat/completions', '/chat/completions'], async (req, res) => {
         }
     } catch (error) {
         console.error('Proxy error:', error);
+        // Map known error categories to proper HTTP status codes.
+        const msg = error.message || String(error);
+        let status = 500;
+        // Auth-related: 401 (client must re-authenticate).
+        if (/auth unavailable|not signed in|not logged in|no api key|no credentials|unauthorized|authentication|sign[- ]?in/i.test(msg)) {
+            status = 401;
+        } else if (/rate|limit|429|quota/i.test(msg)) {
+            status = 429;
+        } else if (/not supported|not found|unknown model|invalid|400/i.test(msg)) {
+            status = 400;
+        }
         if (res.headersSent) {
-            try { res.end(); } catch (e) { }
+            // Streaming already started — emit an SSE error chunk and close.
+            try {
+                res.write(`data: ${JSON.stringify({ error: { message: msg } })}\n\n`);
+                res.write('data: [DONE]\n\n');
+                res.end();
+            } catch (e) { }
         } else {
-            res.status(500).json({ error: { message: error.message, stack: error.stack } });
+            res.status(status).json({ error: { message: msg, type: error.name || 'proxy_error' } });
         }
     }
 });

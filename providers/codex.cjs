@@ -1,5 +1,6 @@
 const https = require('https');
 const crypto = require('crypto');
+const fs = require('fs');
 const { getAuth } = require('../auth/codex.cjs');
 
 const CODEX_BASE_URL = 'chatgpt.com';
@@ -454,7 +455,12 @@ async function collectFromCodexResponse(remoteRes, originalModel) {
 async function chatCompletion({ model, messages, stream, max_tokens, temperature, top_p, tools, tool_choice }, res) {
     const auth = await getAuth();
     if (!auth) {
-        throw new Error('Codex auth unavailable. Run `codex` and log in with ChatGPT.');
+        const authPath = process.env.CODEX_AUTH_PATH ||
+            require('path').join(require('os').homedir(), '.codex', 'auth.json');
+        const hint = fs.existsSync(authPath)
+            ? `Found ${authPath} but it has no tokens. Sign in again with: codex login`
+            : `No Codex credentials at ${authPath}. Install Codex CLI (npm i -g @openai/codex) and sign in, or set CODEX_AUTH_PATH to a valid auth.json`;
+        throw new Error(`Codex auth unavailable. ${hint}.`);
     }
     // Codex/ChatGPT requires stream=true; we always stream internally
     const body = buildRequest({ model, messages, max_tokens, temperature, top_p, tools, tool_choice, stream: true });
