@@ -1,42 +1,47 @@
 const http = require('http');
 const https = require('https');
 const { URL } = require('url');
+const { pickKey } = require('../lib/keypool.cjs');
 
 // Provider configurations
-// baseURL is required; apiKey can be a string or a function that returns one.
-// For dynamic auth, pass a function (e.g. one that reads from disk and refreshes).
+// apiKey defaults to null — the actual key (or comma-separated round-robin
+// list) is resolved at request time via lib/keypool.cjs so different requests
+// can use different accounts.
 const PROVIDERS = {
     'zai': {
         baseURL: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/coding/paas/v4',
-        apiKey: process.env.ZAI_API_KEY || null,  // null = load from opencode auth
+        apiKeyEnv: 'ZAI_API_KEY',
         stripPrefix: false,
         authLoader: require('../auth/zai.cjs').getAuth,
     },
     'zen': {
         baseURL: process.env.OPENCODE_ZEN_BASE_URL || 'https://opencode.ai/zen/v1',
-        apiKey: process.env.OPENCODE_ZEN_API_KEY || null,
+        apiKeyEnv: 'OPENCODE_ZEN_API_KEY',
         stripPrefix: true,  // strip "zen-" prefix before sending
     },
     'opencode': {
-        // Opencode Go — uses the same key as Zen, different endpoint
-        // Hosts MiniMax, GLM, Kimi, Qwen, DeepSeek, etc.
+        // Opencode Go — uses OPENCODE_GO_API_KEY (falls back to ZEN key)
         baseURL: process.env.OPENCODE_GO_BASE_URL || 'https://opencode.ai/zen/go/v1',
-        apiKey: process.env.OPENCODE_GO_API_KEY || process.env.OPENCODE_ZEN_API_KEY || null,
+        apiKeyEnv: 'OPENCODE_GO_API_KEY',
+        apiKeyEnvFallback: 'OPENCODE_ZEN_API_KEY',
         stripPrefix: true,  // strip "opencode-" prefix before sending
     },
     'lmstudio': {
         baseURL: process.env.LMSTUDIO_BASE_URL || 'http://localhost:1234/v1',
-        apiKey: process.env.LMSTUDIO_API_KEY || 'lmstudio',
+        apiKeyEnv: 'LMSTUDIO_API_KEY',
+        apiKeyDefault: 'lmstudio',
         stripPrefix: true,
     },
     'llamacpp': {
         baseURL: process.env.LLAMACPP_BASE_URL || 'http://localhost:8080/v1',
-        apiKey: process.env.LLAMACPP_API_KEY || 'llamacpp',
+        apiKeyEnv: 'LLAMACPP_API_KEY',
+        apiKeyDefault: 'llamacpp',
         stripPrefix: true,
     },
     'unsloth': {
         baseURL: process.env.UNSLOTH_BASE_URL || 'http://localhost:11434/v1',
-        apiKey: process.env.UNSLOTH_API_KEY || 'unsloth',
+        apiKeyEnv: 'UNSLOTH_API_KEY',
+        apiKeyDefault: 'unsloth',
         stripPrefix: true,
     },
 };
@@ -44,13 +49,17 @@ const PROVIDERS = {
 async function resolveAuth(providerName) {
     const cfg = PROVIDERS[providerName];
     if (!cfg) throw new Error(`Unknown provider: ${providerName}`);
-    let apiKey = cfg.apiKey;
-    if (typeof apiKey !== 'string' && cfg.authLoader) {
+    let apiKey = pickKey(cfg.apiKeyEnv);
+    if (!apiKey && cfg.apiKeyEnvFallback) apiKey = pickKey(cfg.apiKeyEnvFallback);
+    if (!apiKey && cfg.apiKeyDefault) apiKey = cfg.apiKeyDefault;
+    // Some providers (zai, minimax) may have an additional fallback that
+    // reads from opencode auth.json. Delegate to it only if env has no key.
+    if (!apiKey && cfg.authLoader) {
         const a = await cfg.authLoader();
         if (a && a.apiKey) apiKey = a.apiKey;
-        if (a && a.baseURL) cfg.baseURL = a.baseURL;  // zai auth may override base URL
+        if (a && a.baseURL) cfg.baseURL = a.baseURL;
     }
-    if (!apiKey) throw new Error(`No API key for provider "${providerName}". Set ${providerName.toUpperCase()}_API_KEY env var.`);
+    if (!apiKey) throw new Error(`No API key for provider "${providerName}". Set ${cfg.apiKeyEnv} env var.`);
     return { baseURL: cfg.baseURL, apiKey, stripPrefix: cfg.stripPrefix };
 }
 

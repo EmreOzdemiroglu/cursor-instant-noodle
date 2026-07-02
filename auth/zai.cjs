@@ -1,10 +1,11 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pickKey } = require('../lib/keypool.cjs');
 
 // z.ai (GLM) auth.
 // Priority:
-//   1. ZAI_API_KEY env var (direct API key)
+//   1. ZAI_API_KEY env var (direct API key, comma-separated for round-robin)
 //   2. zai-coding-plan key from ~/.local/share/opencode/auth.json
 //      (routes via the opencode relay at opencode.ai/zen/go/v1)
 const OPENCODE_AUTH_PATH = process.env.OPENCODE_AUTH_PATH ||
@@ -13,10 +14,11 @@ const OPENCODE_AUTH_PATH = process.env.OPENCODE_AUTH_PATH ||
 let cachedKey = null;
 
 function getAuth() {
-    // 1) Explicit env var
-    if (process.env.ZAI_API_KEY) {
+    // 1) Explicit env var (may be comma-separated list for round-robin)
+    const key = pickKey('ZAI_API_KEY');
+    if (key) {
         return {
-            apiKey: process.env.ZAI_API_KEY,
+            apiKey: key,
             baseURL: process.env.ZAI_BASE_URL || 'https://api.z.ai/api/coding/paas/v4',
             source: 'env',
         };

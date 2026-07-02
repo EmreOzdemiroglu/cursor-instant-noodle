@@ -441,176 +441,183 @@ async function models() {
 }
 
 // ─── Interactive setup ─────────────────────────────────────
-// Each provider's setup step. Returns true on success, false to skip.
-async function stepAntigravity(env) {
-    // Antigravity uses OAuth tokens stored on disk — no API key to enter.
-    const home = os.homedir();
-    const candidates = [
-        path.join(home, '.config', 'opencode', 'antigravity-accounts.json'),
-        path.join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
-    ];
-    const dirs = [path.join(home, '.config', 'opencode'), path.join(home, '.local', 'share', 'opencode')];
-    for (const d of dirs) {
-        try {
-            if (fs.existsSync(d)) {
-                for (const f of fs.readdirSync(d)) {
-                    if (f.startsWith('antigravity-') && f.endsWith('.json')) candidates.push(path.join(d, f));
-                }
-            }
-        } catch (e) {}
+// Each provider has: id, label, envVar (or null for OAuth), type 'oauth'|'apikey'|'local',
+// helper text shown in the menu, and notes for the key prompt.
+const PROVIDERS = [
+    { id: 'antigravity', label: 'Antigravity',  envVar: null,              type: 'oauth',   desc: 'Claude / Gemini / GPT-OSS via Google OAuth',     models: '8 models' },
+    { id: 'codex',       label: 'Codex',         envVar: null,              type: 'oauth',   desc: 'GPT-5.5 / 5.4 via ChatGPT Plus/Pro',             models: '11 models' },
+    { id: 'zen',         label: 'Opencode Zen', envVar: 'OPENCODE_ZEN_API_KEY', type: 'apikey', desc: 'gpt-5.5, claude-opus, deepseek, north, mimo',  models: '17 models' },
+    { id: 'zai',         label: 'z.ai / GLM',   envVar: 'ZAI_API_KEY',     type: 'apikey',  desc: 'glm-5.x',                                       models: '5 models' },
+    { id: 'minimax',     label: 'minimax',       envVar: 'MINIMAX_API_KEY', type: 'apikey',  desc: 'minimax coding plan',                          models: '3 models' },
+    { id: 'opencode-go', label: 'Opencode Go',  envVar: 'OPENCODE_GO_API_KEY', type: 'apikey', desc: 'opencode-minimax-m3, opencode-kimi-k2.7',    models: '11 models' },
+    { id: 'local',       label: 'Local server', envVar: null,              type: 'local',   desc: 'LM Studio / llama.cpp / Ollama',                models: '4 models' },
+];
+
+// Return a status object for one provider. state is 'empty' | 'set' | 'auth' | 'ready'.
+function providerState(p) {
+    if (p.type === 'oauth') {
+        if (p.id === 'antigravity') return checkAntigravity();
+        if (p.id === 'codex') return checkCodex();
     }
-    for (const p of candidates) {
-        if (!fs.existsSync(p)) continue;
-        try {
-            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-            const accounts = j.accounts || (j.refresh_token ? [j] : []);
-            if (accounts.length > 0) {
-                const a = j.activeIndex != null ? accounts[j.activeIndex] : accounts[0];
-                console.log(`    ${log.success}  Antigravity   ${chalk.green('(detected: ' + (a.email || 'account') + ')')}`);
-                return true;
-            }
-        } catch (e) {}
+    if (p.type === 'local') {
+        // Local: 'ready' if anything on common ports, else 'empty'
+        return { ok: false, detail: 'auto-detected at runtime' };
     }
-    console.log(`    ${log.warning}  Antigravity   ${chalk.yellow('not detected — install Opencode and sign in once')}`);
-    return false;
+    if (p.type === 'apikey') {
+        const keys = readEnvKeys(p.envVar);
+        if (keys.length === 0) return { ok: false, detail: 'no key set' };
+        if (keys.length === 1) return { ok: true, detail: `1 key: ${maskKey(keys[0])}` };
+        return { ok: true, detail: `${keys.length} keys (round-robin): ${keys.map(maskKey).join(', ')}` };
+    }
+    return { ok: false, detail: '?' };
 }
 
-async function stepCodex(env) {
-    const p = process.env.CODEX_AUTH_PATH || path.join(os.homedir(), '.codex', 'auth.json');
-    if (fs.existsSync(p)) {
-        try {
-            const j = JSON.parse(fs.readFileSync(p, 'utf8'));
-            const t = j.tokens || j;
-            if (t.access_token || t.refresh_token) {
-                let email = null;
-                if (t.id_token) {
-                    try { email = JSON.parse(Buffer.from(t.id_token.split('.')[1] || 'e30=', 'base64').toString()).email; } catch (e) {}
-                }
-                console.log(`    ${log.success}  Codex         ${chalk.green('(detected: ' + (email || 'token') + ')')}`);
-                return true;
-            }
-        } catch (e) {}
-    }
-    console.log(`    ${log.warning}  Codex         ${chalk.yellow('not detected — install codex CLI and sign in')}`);
-    return false;
+function maskKey(k) {
+    if (!k || k.length < 8) return '***';
+    return k.slice(0, 4) + '\u2026' + k.slice(-4);
 }
 
-async function promptKey(name, label, hint) {
+// Add a key to an API-key provider. Supports multi-account round-robin.
+async function manageApiKey(p) {
+    while (true) {
+        const keys = readEnvKeys(p.envVar);
+        console.log();
+        console.log(chalk.bold(`  ${p.label}`) + chalk.dim(`  (${p.envVar})`));
+        if (keys.length === 0) {
+            console.log(`    ${chalk.dim('no keys yet')}`);
+        } else {
+            keys.forEach((k, i) => console.log(`    ${chalk.green(String(i + 1) + '.')} ${maskKey(k)}`));
+        }
+        console.log();
+        const choices = [
+            { name: chalk.green('+ Add a key'), value: 'add' },
+        ];
+        if (keys.length > 0) {
+            choices.push({ name: chalk.red(`\u2212 Remove last key (${maskKey(keys[keys.length - 1])})`), value: 'remove_last' });
+            choices.push({ name: chalk.red(`\u2212 Remove all (${keys.length} key${keys.length === 1 ? '' : 's'})`), value: 'remove_all' });
+        }
+        choices.push({ name: chalk.dim('Back'), value: 'back' });
+        const r = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: 'Manage keys',
+            choices,
+        }]);
+        if (r.action === 'back') return;
+        if (r.action === 'add') {
+            const k = await inquirer.prompt([{
+                type: 'password',
+                name: 'value',
+                message: chalk.cyan(`Paste ${p.label} API key`),
+                mask: '*',
+                validate: v => v.length >= 4 || 'Looks too short — paste the full key',
+            }]);
+            if (k.value && k.value.trim()) {
+                appendEnvKey(p.envVar, k.value.trim());
+                console.log(`    ${log.success}  ${chalk.green('key added')}  ${chalk.dim(`(${p.envVar} now has ${readEnvKeys(p.envVar).length} key(s))`)}`);
+            }
+        } else if (r.action === 'remove_last') {
+            const removed = keys[keys.length - 1];
+            removeEnvKey(p.envVar, removed);
+            console.log(`    ${log.success}  ${chalk.yellow(`removed ${maskKey(removed)}`)}  ${chalk.dim(`(${readEnvKeys(p.envVar).length} key(s) remain)`)}`);
+        } else if (r.action === 'remove_all') {
+            for (const k of [...keys]) removeEnvKey(p.envVar, k);
+            console.log(`    ${log.success}  ${chalk.yellow(`removed all ${keys.length} key(s)`)}`);
+        }
+    }
+}
+
+async function manageOauth(p) {
+    console.log();
+    console.log(chalk.bold(`  ${p.label}`));
+    const status = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+    if (status.ok) {
+        console.log(`    ${log.success}  ${chalk.green('account detected:')} ${chalk.cyan(status.detail)}`);
+    } else {
+        console.log(`    ${log.warning}  ${chalk.yellow(status.detail)}`);
+    }
+    console.log();
+    const choices = [];
+    if (p.id === 'antigravity') {
+        choices.push({ name: chalk.dim('Re-check (after you sign in)'), value: 'recheck' });
+    }
+    if (p.id === 'codex') {
+        choices.push({ name: chalk.dim('Re-check (after you sign in)'), value: 'recheck' });
+    }
+    choices.push({ name: chalk.dim('Back'), value: 'back' });
     const r = await inquirer.prompt([{
-        type: 'input',
-        name: 'value',
-        message: chalk.cyan(label) + (hint ? chalk.dim(` (${hint})`) : ''),
-        default: '',
-        validate: v => v === '' || v.length >= 4 || 'Looks too short — paste the full key',
+        type: 'list',
+        name: 'action',
+        message: 'What next?',
+        choices,
     }]);
-    if (r.value && r.value.trim()) return r.value.trim();
-    return null;
+    if (r.action === 'recheck') {
+        const newStatus = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+        if (newStatus.ok) console.log(`    ${log.success}  ${chalk.green('now detected:')} ${chalk.cyan(newStatus.detail)}`);
+        else console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
+    }
 }
 
 async function setup() {
     printBanner();
-    console.log(chalk.bold('  Setup wizard'));
-    console.log(chalk.dim('  Pick the providers you want to set up. Skip with Cancel or uncheck everything.'));
-    console.log(chalk.dim('  Keys are written to: ' + ENV_FILE));
+    console.log(chalk.bold('  Setup'));
+    console.log(chalk.dim('  Each row shows the current state. Enter a row to manage it.'));
+    console.log(chalk.dim('  Keys are stored in ' + ENV_FILE + ' and shared across accounts via round-robin.'));
     console.log();
 
-    // First: pick port (cheap, default sane)
+    // Always-on config: port
     const portAnswer = await inquirer.prompt([{
         type: 'input',
         name: 'PORT',
         message: chalk.cyan('Server port'),
-        default: '6767',
+        default: String(parseInt(process.env.PORT || '6767', 10)),
         validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
     }]);
+    // Persist the port
+    writeEnv({ PORT: portAnswer.PORT });
+    console.log(`    ${log.success}  ${chalk.dim('port saved')}`);
     console.log();
 
-    // Second: provider checklist
-    const choiceAnswer = await inquirer.prompt([{
-        type: 'checkbox',
-        name: 'providers',
-        message: chalk.cyan('Select providers to configure'),
-        pageSize: 10,
-        loop: false,
-        choices: [
-            { name: 'Antigravity  ' + chalk.dim('(auto-detected — Claude/Gemini/GPT-OSS via Google OAuth)'), value: 'antigravity', checked: true },
-            { name: 'Codex        ' + chalk.dim('(auto-detected — GPT-5.5/5.4 via ChatGPT Plus/Pro)'),          value: 'codex',       checked: true },
-            { name: 'Opencode Zen ' + chalk.dim('(API key — 17 models incl. free tier)'),                       value: 'zen',         checked: true },
-            { name: 'z.ai / GLM   ' + chalk.dim('(API key — glm-5.x)'),                                          value: 'zai',         checked: false },
-            { name: 'minimax      ' + chalk.dim('(API key — minimax coding plan)'),                                value: 'minimax',     checked: false },
-            { name: 'Opencode Go  ' + chalk.dim('(API key — opencode-minimax-m3, opencode-kimi-k2.7)'),            value: 'opencode-go', checked: false },
-            { name: 'Local server ' + chalk.dim('(LM Studio / llama.cpp / Ollama — auto-detected)'),              value: 'local',       checked: false },
-        ],
-    }]);
-    const picked = choiceAnswer.providers || [];
-    console.log();
+    // Top-level menu loops until the user picks Done
+    while (true) {
+        const choices = PROVIDERS.map(p => {
+            const s = providerState(p);
+            let tag = '';
+            if (p.type === 'local') tag = chalk.dim('ready');
+            else if (s.ok) tag = chalk.green('set   ');
+            else tag = chalk.yellow('empty ');
+            const desc = s.detail ? chalk.dim(s.detail) : '';
+            return { name: `${tag}  ${p.label.padEnd(16)} ${desc}`, value: p.id, short: p.label };
+        });
+        choices.push(new inquirer.Separator('\u2500'.repeat(40)));
+        choices.push({ name: chalk.bold('Done'), value: '__done__' });
 
-    const values = { PORT: portAnswer.PORT };
-
-    // Antigravity and Codex: just report what's there (no key entry).
-    if (picked.includes('antigravity')) await stepAntigravity();
-    if (picked.includes('codex'))       await stepCodex();
-
-    // The rest: prompt for the API key.
-    if (picked.includes('zen')) {
-        const k = await promptKey('zen', 'Opencode Zen API key', 'gpt-5.5, claude-opus, deepseek, north, mimo, free models');
-        if (k) values.OPENCODE_ZEN_API_KEY = k;
-        else   console.log(`    ${chalk.dim('- skipped (Opencode Zen)')}`);
-    }
-    if (picked.includes('zai')) {
-        const k = await promptKey('zai', 'z.ai API key', 'GLM models');
-        if (k) values.ZAI_API_KEY = k;
-        else   console.log(`    ${chalk.dim('- skipped (z.ai)')}`);
-    }
-    if (picked.includes('minimax')) {
-        const k = await promptKey('minimax', 'MiniMax API key', 'minimax coding plan');
-        if (k) values.MINIMAX_API_KEY = k;
-        else   console.log(`    ${chalk.dim('- skipped (minimax)')}`);
-    }
-    if (picked.includes('opencode-go')) {
-        const k = await promptKey('opencode-go', 'Opencode Go API key', 'opencode-minimax-m3, opencode-kimi-k2.7');
-        if (k) values.OPENCODE_GO_API_KEY = k;
-        else   console.log(`    ${chalk.dim('- skipped (Opencode Go)')}`);
-    }
-    if (picked.includes('local')) {
-        const portAnswer = await inquirer.prompt([{
-            type: 'input',
-            name: 'port',
-            message: chalk.cyan('Local server port') + chalk.dim(' (1234=LM Studio, 8080=llama.cpp, 11434=Ollama)'),
-            default: '1234',
-            validate: (v) => /^\d+$/.test(v) || 'Port must be a number',
+        const r = await inquirer.prompt([{
+            type: 'list',
+            name: 'provider',
+            message: 'Manage a provider',
+            pageSize: 12,
+            loop: false,
+            choices,
         }]);
-        // We don't store this — local base URL is auto-detected by the proxy.
-        console.log(`    ${log.success}  Local         ${chalk.green('(auto-detected at runtime)')}`);
-    }
 
-    console.log();
+        if (r.provider === '__done__') break;
 
-    // Write .env
-    if (!values.OPENCODE_ZEN_API_KEY && !values.ZAI_API_KEY && !values.MINIMAX_API_KEY && !values.OPENCODE_GO_API_KEY) {
-        const skip = await inquirer.prompt([{
-            type: 'confirm',
-            name: 'ok',
-            message: chalk.yellow('No API keys were entered. Save just the port?'),
-            default: true,
-        }]);
-        if (!skip.ok) {
-            console.log(chalk.dim('  (no changes written)'));
-            return;
+        const p = PROVIDERS.find(x => x.id === r.provider);
+        if (p.type === 'apikey') await manageApiKey(p);
+        else if (p.type === 'oauth') await manageOauth(p);
+        else if (p.type === 'local') {
+            console.log();
+            console.log(chalk.bold('  Local server'));
+            console.log(`    ${chalk.dim('Local models are served from your machine. Set these env vars in ' + ENV_FILE + ' to point at non-default ports:')}`);
+            console.log(`    ${chalk.cyan('LMSTUDIO_BASE_URL=http://localhost:1234/v1')}`);
+            console.log(`    ${chalk.cyan('LLAMACPP_BASE_URL=http://localhost:8080/v1')}`);
+            console.log(`    ${chalk.cyan('UNSLOTH_BASE_URL=http://localhost:11434/v1')}`);
         }
     }
 
-    const spinner = ora({ text: 'Writing .env...', color: 'cyan' }).start();
-    try {
-        ensureEnvFile();
-        writeEnv(values);
-        spinner.stop();
-        console.log(log.success + ' ' + chalk.green('Saved to ' + ENV_FILE));
-    } catch (e) {
-        spinner.stop();
-        console.log(log.error + ' ' + chalk.red(`Failed to write .env: ${e.message}`));
-        return;
-    }
-
+    console.log();
+    console.log(log.success + ' ' + chalk.green('Setup complete.'));
     console.log();
     console.log(chalk.bold('  Next:'));
     console.log(`    ${chalk.cyan('cursor-noodle start')}     ${chalk.dim('# start the proxy + tunnel')}`);
@@ -627,15 +634,71 @@ function writeEnv(values) {
         content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
     }
     for (const [key, value] of Object.entries(values)) {
-        if (!value) continue;
+        if (value === undefined || value === null) continue;
         const re = new RegExp(`^#?\\s*${key}=.*$`, 'm');
+        const line = value === '' ? `${key}=` : `${key}=${value}`;
         if (re.test(content)) {
-            content = content.replace(re, `${key}=${value}`);
+            content = content.replace(re, line);
         } else {
-            content += `\n${key}=${value}\n`;
+            content += `\n${line}\n`;
         }
     }
     fs.writeFileSync(ENV_FILE, content);
+}
+
+// Append a key to a comma-separated list in .env (or create it).
+// Returns the new full list (array).
+function appendEnvKey(envVar, newKey) {
+    let content = '';
+    if (fs.existsSync(ENV_FILE)) {
+        content = fs.readFileSync(ENV_FILE, 'utf8');
+    } else if (fs.existsSync(ENV_EXAMPLE)) {
+        content = fs.readFileSync(ENV_EXAMPLE, 'utf8');
+    }
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    let keys = [];
+    const match = content.match(re);
+    if (match) {
+        keys = match[1].split(',').map(s => s.trim()).filter(Boolean);
+        if (!keys.includes(newKey)) keys.push(newKey);
+        const newLine = `${envVar}=${keys.join(',')}`;
+        content = content.replace(re, newLine);
+    } else {
+        keys = [newKey];
+        content += `\n${envVar}=${newKey}\n`;
+    }
+    fs.writeFileSync(ENV_FILE, content);
+    return keys;
+}
+
+// Remove a key from a comma-separated list. If the list becomes empty,
+// remove the env var entirely.
+function removeEnvKey(envVar, keyToRemove) {
+    if (!fs.existsSync(ENV_FILE)) return [];
+    let content = fs.readFileSync(ENV_FILE, 'utf8');
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    const match = content.match(re);
+    if (!match) return [];
+    let keys = match[1].split(',').map(s => s.trim()).filter(Boolean);
+    keys = keys.filter(k => k !== keyToRemove);
+    if (keys.length === 0) {
+        content = content.replace(re, '');
+        content = content.replace(/\n\n+/g, '\n\n');
+    } else {
+        content = content.replace(re, `${envVar}=${keys.join(',')}`);
+    }
+    fs.writeFileSync(ENV_FILE, content);
+    return keys;
+}
+
+// Read the current keys for an env var from .env (does not touch process.env).
+function readEnvKeys(envVar) {
+    if (!fs.existsSync(ENV_FILE)) return [];
+    const content = fs.readFileSync(ENV_FILE, 'utf8');
+    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
+    const match = content.match(re);
+    if (!match) return [];
+    return match[1].split(',').map(s => s.trim()).filter(Boolean);
 }
 
 function PORT() {

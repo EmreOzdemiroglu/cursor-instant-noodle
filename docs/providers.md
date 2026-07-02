@@ -20,6 +20,19 @@ This proxy is a router. It looks at the model name in the request and forwards t
 
 ---
 
+## Multi-account (round-robin)
+
+Any API-key provider (`Opencode Zen`, `z.ai`, `minimax`, `Opencode Go`) can take **multiple keys** separated by commas. The proxy round-robins between them so rate limits and quotas are spread across accounts.
+
+```
+OPENCODE_ZEN_API_KEY=sk-account1,sk-account2,sk-account3
+ZAI_API_KEY=key1,key2
+```
+
+You can add keys via `cursor-noodle setup` → pick the provider → "+ Add a key" → paste → repeat. Round-robin is per-process (not shared across proxy restarts), and evenly distributes requests.
+
+---
+
 ## Antigravity
 
 Google's free IDE gives you access to Gemini 3 Pro, Gemini 3 Flash, Claude Sonnet 4.6, Claude Opus 4.6, and others through your Google account. **No API key needed.** This is the cheapest "good" coding model tier.

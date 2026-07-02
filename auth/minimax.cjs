@@ -1,6 +1,7 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { pickKey } = require('../lib/keypool.cjs');
 
 const OPENCODE_AUTH_PATH = process.env.OPENCODE_AUTH_PATH ||
     path.join(os.homedir(), '.local', 'share', 'opencode', 'auth.json');
@@ -8,10 +9,11 @@ const OPENCODE_AUTH_PATH = process.env.OPENCODE_AUTH_PATH ||
 let cachedKey = null;
 
 function getAuth() {
-    // 1) Explicit env var
-    if (process.env.MINIMAX_API_KEY) {
+    // 1) Explicit env var (may be comma-separated list for round-robin)
+    const key = pickKey('MINIMAX_API_KEY');
+    if (key) {
         return {
-            apiKey: process.env.MINIMAX_API_KEY,
+            apiKey: key,
             source: 'env',
         };
     }
