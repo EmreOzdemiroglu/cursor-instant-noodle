@@ -1,7 +1,7 @@
 {
   "name": "cursor-instant-noodle",
-  "version": "0.0.5",
-  "description": "Cursor on an instant-noodle budget \ud83c\udf5c \u2014 use Antigravity, Codex, z.ai, MiniMax, Opencode, LMStudio & more for free or cheap",
+  "version": "0.0.6",
+  "description": "Cursor on an instant-noodle budget 🍜 — use Antigravity, Codex, z.ai, MiniMax, Opencode, LMStudio & more for free or cheap",
   "type": "module",
   "license": "MIT",
   "author": "Emre Ozdemiroglu",
@@ -32,7 +32,7 @@
     "node": ">=18"
   },
   "bin": {
-    "cursor-noodle": "./bin/cursor-noodle.cjs"
+    "cursor-noodle": "bin/cursor-noodle.cjs"
   },
   "files": [
     "bin/",
