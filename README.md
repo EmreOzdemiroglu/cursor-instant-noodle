@@ -30,7 +30,7 @@ Requires Node.js 18+.
 
 ```bash
 npm install -g github:EmreOzdemiroglu/cursor-instant-noodle
-cursor-noodle cheapmf     # free-tier fast path: get an Opencode Zen key, use free models
+cursor-noodle cheapmf     # free-tier fast path: get an Opencode key, use free models
 cursor-noodle start       # start proxy + public tunnel
 ```
 
@@ -75,7 +75,7 @@ Regenerate the key if it ever leaks. The proxy hot-reloads new keys on `.env` ch
 
 ## Multi-account
 
-Every multi-account provider (Opencode Zen/Go, z.ai, MiniMax, Codex, Antigravity) uses **sticky failover**: account 1 is used until it returns an auth/quota/rate failure, then account 2 is tried silently. The caller only sees an error after every account has been tried. This preserves backend cache affinity and matches the documented behavior in [docs/providers.md](docs/providers.md).
+Every multi-account provider (Opencode, z.ai, MiniMax, Codex, Antigravity) uses **sticky failover**: account 1 is used until it returns an auth/quota/rate failure, then account 2 is tried silently. The caller only sees an error after every account has been tried. This preserves backend cache affinity and matches the documented behavior in [docs/providers.md](docs/providers.md).
 
 
 That's it. Now open a chat and click **+ Add Custom Model** to add the models you want. Every model ID starts with **`n-`** (for noodle) so it never collides with Cursor's built-in names — e.g. `n-gemini-3.5-flash-medium`, `n-glm-4.6`, `n-minimax-m3`. See the [model ID cheat sheet](docs/models.md#model-ids-to-add-in-cursor) for the full list.
@@ -83,7 +83,7 @@ That's it. Now open a chat and click **+ Add Custom Model** to add the models yo
 ## Commands
 
 ```bash
-cursor-noodle cheapmf       # free-tier fast path (Opencode Zen key → DeepSeek/MiMo/North free)
+cursor-noodle cheapmf       # free-tier fast path (Opencode key → DeepSeek/MiMo/North free)
 cursor-noodle start         # start proxy + tunnel in the background
 cursor-noodle status        # running state + public tunnel URL
 cursor-noodle models        # list all available models

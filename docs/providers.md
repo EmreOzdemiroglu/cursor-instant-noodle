@@ -12,8 +12,7 @@ This proxy is a router. It looks at the model name in the request and forwards t
 | [Codex / ChatGPT](#codex) | `cursor-noodle setup` OAuth | with ChatGPT sub | gpt-5.5/x, gpt-5.4/x, gpt-5.4-mini |
 | [z.ai / GLM](#zai) | env or opencode | with coding plan | GLM-5.2, GLM-4.6 |
 | [MiniMax](#minimax) | auto (opencode coding plan) | with coding plan | MiniMax-M3, M2.7, M2.5 |
-| [Opencode Zen](#opencode-zen) | `OPENCODE_ZEN_API_KEY` | mostly paid, some free | 50+ models |
-| [Opencode Go](#opencode-go) | shared with Zen | mostly paid | MiniMax, Kimi, Qwen, DeepSeek |
+| [Opencode](#opencode) | `OPENCODE_ZEN_API_KEY` | mostly paid, some free | Zen + Go (50+ models) |
 | [LMStudio](#lmstudio) | none | free (local) | whatever you load |
 | [llama.cpp](#llamacpp) | none | free (local) | whatever you serve |
 | [Unsloth](#unsloth) | none | free (local) | whatever you serve |
@@ -116,18 +115,23 @@ The Chinese AI company MiniMax offers M2 and M3 models on a flat-rate coding pla
 
 ---
 
-## Opencode Zen
+## Opencode (Zen + Go)
 
-50+ curated models, including some free ones and some top-tier paid ones.
+Opencode ships two endpoints behind the same account:
 
-**Auth source:** `OPENCODE_ZEN_API_KEY` env var. Get one at https://opencode.ai/zen.
+- **Zen** at `https://opencode.ai/zen/v1` — 50+ curated models including some free ones and top-tier paid ones.
+- **Go** at `https://opencode.ai/zen/go/v1` — Chinese open-weight heavyweights (MiniMax, Kimi, Qwen, DeepSeek, GLM).
 
-**Free models (no payment method needed):**
+The setup wizard asks for **one** Opencode key and stores it as `OPENCODE_ZEN_API_KEY`. The proxy automatically uses the same key for Go requests. If you have a separate Go-only account, set `OPENCODE_GO_API_KEY` in `~/.cursor-noodle/.env` as an advanced override.
+
+**Auth source:** `OPENCODE_ZEN_API_KEY`. Get one at https://opencode.ai/zen. Multi-account (sticky failover) is supported by comma-separating keys.
+
+### Free models (no payment method needed)
 - `zen-north-mini-code-free`
 - `zen-mimo-v2.5-free`
 - `zen-deepseek-v4-flash-free`
 
-**Notable paid models:**
+### Notable Zen models
 - `zen-gpt-5.5` / `zen-gpt-5.5-pro`
 - `zen-claude-opus-4-8`
 - `zen-claude-opus-4-6`
@@ -135,15 +139,7 @@ The Chinese AI company MiniMax offers M2 and M3 models on a flat-rate coding pla
 - `zen-gemini-3.5-flash`
 - `zen-big-pickle`
 
----
-
-## Opencode Go
-
-A separate endpoint at `https://opencode.ai/zen/go/v1`. Same API key as Zen. Hosts the Chinese open-weight heavyweights.
-
-**Auth source:** `OPENCODE_GO_API_KEY` (falls back to `OPENCODE_ZEN_API_KEY`).
-
-**Notable models:**
+### Notable Go models
 - `opencode-minimax-m3`
 - `opencode-kimi-k2.7-code`
 - `opencode-glm-5.2`

@@ -200,13 +200,13 @@ function checkAntigravity() {
 function checkOpencode() {
     const zenKeys = readEnvKeys('OPENCODE_ZEN_API_KEY');
     const goKeys = readEnvKeys('OPENCODE_GO_API_KEY');
-    const labels = [];
-    if (zenKeys.length > 0) labels.push(`zen (${zenKeys.length})`);
-    if (goKeys.length > 0) labels.push(`go (${goKeys.length})`);
     if (zenKeys.length === 0 && goKeys.length === 0) {
-        return { ok: false, detail: 'no OPENCODE_ZEN_API_KEY / OPENCODE_GO_API_KEY in ~/.cursor-noodle/.env' };
+        return { ok: false, detail: 'no Opencode API key in ~/.cursor-noodle/.env (run: cursor-noodle setup)' };
     }
-    return { ok: true, detail: labels.join(' + ') };
+    if (zenKeys.length > 0 && goKeys.length > 0 && goKeys.join(',') !== zenKeys.join(',')) {
+        return { ok: true, detail: `Zen + Go keys (separate accounts)` };
+    }
+    return { ok: true, detail: zenKeys.length > 1 ? `${zenKeys.length} keys` : `1 key: ${maskKey(zenKeys[0])}` };
 }
 
 function checkZai() {
@@ -402,10 +402,9 @@ async function models() {
 const PROVIDERS = [
     { id: 'antigravity', label: 'Antigravity',  envVar: null,              type: 'oauth',   desc: 'Claude / Gemini / GPT-OSS via Google OAuth',     models: '8 models' },
     { id: 'codex',       label: 'Codex',         envVar: null,              type: 'oauth',   desc: 'GPT-5.5 / 5.4 via ChatGPT Plus/Pro',             models: '11 models' },
-    { id: 'zen',         label: 'Opencode Zen', envVar: 'OPENCODE_ZEN_API_KEY', type: 'apikey', desc: 'gpt-5.5, claude-opus, deepseek, north, mimo',  models: '17 models' },
+    { id: 'opencode',    label: 'Opencode',     envVar: 'OPENCODE_ZEN_API_KEY', type: 'apikey', desc: 'Zen + Go (gpt-5.5, claude, deepseek, kimi, qwen)', models: '37 models' },
     { id: 'zai',         label: 'z.ai / GLM',   envVar: 'ZAI_API_KEY',     type: 'apikey',  desc: 'glm-5.x',                                       models: '5 models' },
     { id: 'minimax',     label: 'minimax',       envVar: 'MINIMAX_API_KEY', type: 'apikey',  desc: 'minimax coding plan',                          models: '3 models' },
-    { id: 'opencode-go', label: 'Opencode Go',  envVar: 'OPENCODE_GO_API_KEY', type: 'apikey', desc: 'opencode-minimax-m3, opencode-kimi-k2.7',    models: '11 models' },
     { id: 'local',       label: 'Local server', envVar: null,              type: 'local',   desc: 'LM Studio / llama.cpp / Ollama',                models: '4 models' },
 ];
 
