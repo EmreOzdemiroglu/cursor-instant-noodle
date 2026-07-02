@@ -52,7 +52,17 @@ jobs:
             dist/*.tar.gz
             dist/SHA256SUMS
 
-      # Publishing to npm is done manually by the maintainer
-      # (`npm publish` locally) so the workflow does not need an
-      # NPM_TOKEN secret. The version in package.json is the source
-      # of truth for what gets published.
+      # ── Auto-publish to npm ────────────────────────────────────
+      # Uses the NPM_TOKEN repo secret (a Granular Access Token on the
+      # @emreozdemiroglu account, scoped to this package, with 2FA bypass
+      # for automation). Runs after the GitHub release is created, so a
+      # failed npm publish does not block the binary release.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Publish to npm
+        run: npm publish --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
