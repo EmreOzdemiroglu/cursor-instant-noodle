@@ -204,6 +204,27 @@ function streamFromCodexResponse(remoteRes, originalModel, res) {
     let eventName = '';
     let lastResponse = null;
 
+    // Track tool calls across the stream. Codex emits them as:
+    //   response.output_item.added        (item with id, name, call_id, arguments='')
+    //   response.function_call_arguments.delta (one or more deltas)
+    //   response.function_call_arguments.done   (complete arguments string)
+    //   response.output_item.done         (item with status=completed)
+    // The final response.completed event has output=[] in Codex (backend quirk),
+    // so we reconstruct tool_calls from the item events.
+    const toolCalls = new Map(); // call_id -> { id, name, arguments, emitted }
+
+    const id = (extra) => 'chatcmpl-' + (extra || crypto.randomUUID());
+    const ts = () => Math.floor(Date.now() / 1000);
+    const emitChunk = (choicesDelta, finishReason) => {
+        res.write(`data: ${JSON.stringify({
+            id: id(lastResponse?.id),
+            object: 'chat.completion.chunk',
+            created: ts(),
+            model: originalModel,
+            choices: [{ index: 0, delta: choicesDelta, finish_reason: finishReason || null }],
+        })}\n\n`);
+    };
+
     remoteRes.on('data', (chunk) => {
         buffer += chunk.toString();
         const lines = buffer.split('\n');
@@ -214,31 +235,90 @@ function streamFromCodexResponse(remoteRes, originalModel, res) {
             } else if (line.startsWith('data:')) {
                 const data = line.substring(5).trim();
                 if (!data) continue;
-                if (eventName === 'response.completed' || eventName === 'response.done') {
-                    try { lastResponse = JSON.parse(data).response; } catch (e) { }
+                let parsed;
+                try { parsed = JSON.parse(data); } catch (e) { continue; }
+
+                if (eventName === 'response.output_text.delta' || eventName === 'response.content_part.delta') {
+                    const delta = parsed.delta || parsed.text;
+                    if (delta) emitChunk({ content: delta }, null);
+                } else if (eventName === 'response.function_call_arguments.delta') {
+                    const callId = parsed.item_id && toolCalls.get(parsed.item_id);
+                    if (callId && parsed.delta) {
+                        callId.arguments = (callId.arguments || '') + parsed.delta;
+                    }
+                } else if (eventName === 'response.function_call_arguments.done') {
+                    // Codex's final arguments string — use it as the canonical value.
+                    const callId = parsed.item_id && toolCalls.get(parsed.item_id);
+                    if (callId && parsed.arguments) callId.arguments = parsed.arguments;
+                } else if (eventName === 'response.output_item.added') {
+                    if (parsed.item && parsed.item.type === 'function_call') {
+                        const item = parsed.item;
+                        toolCalls.set(item.id, {
+                            id: item.id,
+                            call_id: item.call_id,
+                            name: item.name,
+                            arguments: item.arguments || '',
+                            emitted: false,
+                        });
+                        // OpenAI Chat Completions format: announce the tool call with its id/name first,
+                        // then stream the arguments. We need to emit a chunk with the call index.
+                        const idx = Array.from(toolCalls.keys()).indexOf(item.id);
+                        emitChunk({
+                            tool_calls: [{
+                                index: idx,
+                                id: item.call_id,
+                                type: 'function',
+                                function: { name: item.name, arguments: '' },
+                            }],
+                        }, null);
+                    }
+                } else if (eventName === 'response.output_item.done') {
+                    if (parsed.item && parsed.item.type === 'function_call') {
+                        const item = parsed.item;
+                        const tc = toolCalls.get(item.id);
+                        if (tc) {
+                            // Use the done item's complete arguments (handles edge cases).
+                            if (item.arguments) tc.arguments = item.arguments;
+                            // Emit a final arguments chunk in case the deltas didn't cover everything.
+                            const idx = Array.from(toolCalls.keys()).indexOf(item.id);
+                            emitChunk({
+                                tool_calls: [{
+                                    index: idx,
+                                    function: { arguments: tc.arguments || '' },
+                                }],
+                            }, null);
+                            tc.emitted = true;
+                        }
+                    }
+                } else if (eventName === 'response.completed' || eventName === 'response.done') {
+                    if (parsed.response) {
+                        lastResponse = parsed.response;
+                    }
                 }
-                const chunk = parseSSEEventToChunk(eventName, data, originalModel);
-                if (chunk) res.write(`data: ${JSON.stringify(chunk)}\n\n`);
             }
         }
     });
 
     remoteRes.on('end', () => {
-        // Emit final chunk with usage if we have a completed response
-        if (lastResponse) {
-            const final = parseSSEEventToFinal('response.completed', JSON.stringify({ response: lastResponse }), originalModel);
-            if (final) {
-                if (final.usage) {
-                    res.write(`data: ${JSON.stringify({
-                        id: final.id,
-                        object: 'chat.completion.chunk',
-                        created: final.created,
-                        model: originalModel,
-                        choices: [],
-                        usage: final.usage,
-                    })}\n\n`);
-                }
-            }
+        // If the model called any tools, finish with finish_reason='tool_calls'.
+        // Otherwise 'stop'.
+        const anyToolCalls = Array.from(toolCalls.values()).some(t => t.emitted);
+        emitChunk({}, anyToolCalls ? 'tool_calls' : 'stop');
+
+        if (lastResponse && lastResponse.usage) {
+            const u = lastResponse.usage;
+            res.write(`data: ${JSON.stringify({
+                id: id(lastResponse.id),
+                object: 'chat.completion.chunk',
+                created: ts(),
+                model: originalModel,
+                choices: [],
+                usage: {
+                    prompt_tokens: u.input_tokens || 0,
+                    completion_tokens: u.output_tokens || 0,
+                    total_tokens: u.total_tokens || 0,
+                },
+            })}\n\n`);
         }
         res.write('data: [DONE]\n\n');
         res.end();
@@ -256,8 +336,11 @@ async function collectFromCodexResponse(remoteRes, originalModel) {
         let eventName = '';
         let lastResponse = null;
         let accumulatedText = '';
-        let toolCalls = [];
         let usage = null;
+        // Same reconstruction logic as the streaming path — Codex's
+        // response.completed sometimes has output=[].
+        const toolCalls = new Map(); // item_id -> { id, call_id, name, arguments }
+
         remoteRes.on('data', (chunk) => {
             buffer += chunk.toString();
             const lines = buffer.split('\n');
@@ -268,33 +351,56 @@ async function collectFromCodexResponse(remoteRes, originalModel) {
                 } else if (line.startsWith('data:')) {
                     const data = line.substring(5).trim();
                     if (!data) continue;
-                    try {
-                        const parsed = JSON.parse(data);
-                        if (eventName === 'response.output_text.delta' || eventName === 'response.content_part.delta') {
-                            if (parsed.delta) accumulatedText += parsed.delta;
-                            else if (parsed.text) accumulatedText += parsed.text;
-                        } else if (eventName === 'response.output_item.added' || eventName === 'response.output_item.done') {
-                            if (parsed.item && parsed.item.type === 'function_call') {
-                                toolCalls.push({
-                                    id: parsed.item.call_id || ('call_' + crypto.randomUUID().substring(0, 8)),
-                                    type: 'function',
-                                    function: {
-                                        name: parsed.item.name,
-                                        arguments: typeof parsed.item.arguments === 'string' ? parsed.item.arguments : JSON.stringify(parsed.item.arguments || {}),
-                                    },
-                                });
-                            }
-                        } else if (eventName === 'response.completed' || eventName === 'response.done') {
-                            if (parsed.response) {
-                                lastResponse = parsed.response;
-                                if (parsed.response.usage) usage = parsed.response.usage;
-                            }
+                    let parsed;
+                    try { parsed = JSON.parse(data); } catch (e) { continue; }
+
+                    if (eventName === 'response.output_text.delta' || eventName === 'response.content_part.delta') {
+                        if (parsed.delta) accumulatedText += parsed.delta;
+                        else if (parsed.text) accumulatedText += parsed.text;
+                    } else if (eventName === 'response.function_call_arguments.delta') {
+                        const tc = parsed.item_id && toolCalls.get(parsed.item_id);
+                        if (tc && parsed.delta) tc.arguments = (tc.arguments || '') + parsed.delta;
+                    } else if (eventName === 'response.function_call_arguments.done') {
+                        const tc = parsed.item_id && toolCalls.get(parsed.item_id);
+                        if (tc && parsed.arguments) tc.arguments = parsed.arguments;
+                    } else if (eventName === 'response.output_item.added') {
+                        if (parsed.item && parsed.item.type === 'function_call') {
+                            toolCalls.set(parsed.item.id, {
+                                id: parsed.item.id,
+                                call_id: parsed.item.call_id,
+                                name: parsed.item.name,
+                                arguments: parsed.item.arguments || '',
+                            });
                         }
-                    } catch (e) { }
+                    } else if (eventName === 'response.output_item.done') {
+                        if (parsed.item && parsed.item.type === 'function_call') {
+                            const existing = toolCalls.get(parsed.item.id) || {};
+                            toolCalls.set(parsed.item.id, {
+                                id: parsed.item.id,
+                                call_id: parsed.item.call_id || existing.call_id,
+                                name: parsed.item.name || existing.name,
+                                arguments: parsed.item.arguments || existing.arguments || '',
+                            });
+                        }
+                    } else if (eventName === 'response.completed' || eventName === 'response.done') {
+                        if (parsed.response) {
+                            lastResponse = parsed.response;
+                            if (parsed.response.usage) usage = parsed.response.usage;
+                        }
+                    }
                 }
             }
         });
+
         remoteRes.on('end', () => {
+            const toolCallsArr = Array.from(toolCalls.values()).map((t, i) => ({
+                id: t.call_id || ('call_' + crypto.randomUUID().substring(0, 8)),
+                type: 'function',
+                function: {
+                    name: t.name,
+                    arguments: t.arguments || '{}',
+                },
+            }));
             resolve({
                 id: 'chatcmpl-' + (lastResponse?.id || crypto.randomUUID()),
                 object: 'chat.completion',
@@ -305,9 +411,9 @@ async function collectFromCodexResponse(remoteRes, originalModel) {
                     message: {
                         role: 'assistant',
                         content: accumulatedText,
-                        tool_calls: toolCalls.length > 0 ? toolCalls : undefined,
+                        tool_calls: toolCallsArr.length > 0 ? toolCallsArr : undefined,
                     },
-                    finish_reason: toolCalls.length > 0 ? 'tool_calls' : 'stop',
+                    finish_reason: toolCallsArr.length > 0 ? 'tool_calls' : 'stop',
                 }],
                 usage: usage ? {
                     prompt_tokens: usage.input_tokens || 0,
