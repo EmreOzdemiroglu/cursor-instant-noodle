@@ -49,38 +49,22 @@ The full advertised model list lives in [lib/models.cjs](lib/models.cjs) and is 
 
 ## Install
 
-Requires Node.js 18+.
-
-**Option A — npm (recommended):**
+**Option A — npm:**
 
 ```bash
 npm install -g cursor-instant-noodle
-cursor-noodle        # first run opens the setup wizard
-cursor-noodle start  # starts the proxy + public tunnel
+cursor-noodle start
 ```
 
-Requires Node.js 18+. `npm` installs the package, its dependencies, and the `cursor-noodle` command on your PATH.
-
-**Option B — standalone binary (no Node.js required):**
+**Option B — curl (standalone binary, no Node.js required):**
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/EmreOzdemiroglu/cursor-instant-noodle/main/install.sh | bash
 ```
 
-This downloads a prebuilt binary from the latest [GitHub release](https://github.com/EmreOzdemiroglu/cursor-instant-noodle/releases) to `~/.local/bin/cursor-noodle` and adds it to your PATH.
+On first run, `cursor-noodle` opens the setup wizard to configure your API keys, then `cursor-noodle start` runs the proxy + public tunnel. The `cloudflared` binary is auto-downloaded on first start so the tunnel works out of the box.
 
-Either way, `cursor-noodle start` will download the `cloudflared` binary on first run so the public tunnel works out of the box. If that download fails (offline, rate-limited, corporate proxy), the local proxy still works — see [troubleshooting](docs/troubleshooting.md).
-
-**Option C — from source (dev/contributing):**
-
-```bash
-git clone https://github.com/EmreOzdemiroglu/cursor-instant-noodle
-cd cursor-instant-noodle
-npm install
-node bin/cursor-noodle.cjs start
-```
-
-> Note: `npm install -g github:owner/repo` (the GitHub shorthand) is currently unreliable on npm 11 — files end up missing from the install. Use Option A (`npm install -g cursor-instant-noodle` from the registry) or Option B (binary) instead.
+For building from source / contributing, see [docs/development.md](docs/development.md).
 
 ## Connect Cursor
 
