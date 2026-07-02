@@ -171,15 +171,25 @@ const path2 = require('path');
 function fileExists(p) { try { return fs2.existsSync(p); } catch (e) { return false; } }
 function readJson(p) { try { return JSON.parse(fs2.readFileSync(p, 'utf8')); } catch (e) { return null; } }
 
+// Codex auth check. Returns { ok, detail, reason } where reason is one of:
+//   'ok'              - account detected
+//   'missing-file'    - auth.json doesn't exist
+//   'unreadable'      - file exists but JSON is malformed
+//   'no-tokens'       - file exists but has no tokens
+//   'empty-file'      - file exists but is empty
 function checkCodex() {
     const p = process.env.CODEX_AUTH_PATH || path2.join(os2.homedir(), '.codex', 'auth.json');
-    if (!fileExists(p)) return { ok: false, detail: '~/.codex/auth.json not found' };
-    const j = readJson(p);
-    if (!j) return { ok: false, detail: '~/.codex/auth.json unreadable' };
+    if (!fileExists(p)) return { ok: false, reason: 'missing-file', detail: '~/.codex/auth.json not found' };
+    const raw = fs2.readFileSync(p, 'utf8').trim();
+    if (!raw) return { ok: false, reason: 'empty-file', detail: '~/.codex/auth.json is empty (not signed in)' };
+    let j;
+    try { j = JSON.parse(raw); } catch (e) { return { ok: false, reason: 'unreadable', detail: '~/.codex/auth.json is not valid JSON' }; }
     // Codex auth has two shapes: {tokens: {access_token, refresh_token}} (chatgpt mode)
     // or top-level {access_token, refresh_token} (legacy/api-key mode).
     const t = j.tokens || j;
-    if (!t.access_token && !t.refresh_token) return { ok: false, detail: 'no tokens in ~/.codex/auth.json' };
+    if (!t.access_token && !t.refresh_token) {
+        return { ok: false, reason: 'no-tokens', detail: '~/.codex/auth.json has no tokens (sign in with: codex login)' };
+    }
     let email = null;
     if (t.id_token) {
         try {
@@ -187,7 +197,7 @@ function checkCodex() {
             email = payload.email;
         } catch (e) {}
     }
-    return { ok: true, detail: email || t.account_id || 'token present' };
+    return { ok: true, reason: 'ok', detail: email || t.account_id || 'token present' };
 }
 
 function checkAntigravity() {
@@ -216,11 +226,15 @@ function checkAntigravity() {
         if (!j) continue;
         if (j.accounts && Array.isArray(j.accounts) && j.accounts.length > 0) {
             const active = j.accounts[j.activeIndex || 0];
-            if (active && active.refreshToken) return { ok: true, detail: active.email || `${j.accounts.length} account(s)` };
+            if (active && active.refreshToken) return { ok: true, reason: 'ok', detail: active.email || `${j.accounts.length} account(s)` };
         }
-        if (j.refresh_token) return { ok: true, detail: j.email || 'refresh token' };
+        if (j.refresh_token) return { ok: true, reason: 'ok', detail: j.email || 'refresh token' };
     }
-    return { ok: false, detail: 'no antigravity credentials found' };
+    return {
+        ok: false,
+        reason: 'missing-file',
+        detail: 'no antigravity credentials found. Install Opencode (https://opencode.ai) and run: opencode auth login',
+    };
 }
 
 function checkOpencode() {
@@ -527,24 +541,75 @@ async function manageApiKey(p) {
     }
 }
 
+// Per-provider help for OAuth providers. Shown when not detected.
+const OAUTH_HELP = {
+    codex: {
+        installCmd: 'npm install -g @openai/codex',
+        signInCmd: 'codex login',
+        signInNote: 'runs you through ChatGPT OAuth and writes ~/.codex/auth.json',
+        authPath: () => process.env.CODEX_AUTH_PATH ||
+            require('path').join(require('os').homedir(), '.codex', 'auth.json'),
+    },
+    antigravity: {
+        installCmd: 'curl -fsSL https://opencode.ai/install | bash',
+        signInCmd: 'opencode auth login',
+        signInNote: 'sign in with your Google account, then enable Antigravity in plugin settings',
+        authPath: () => {
+            const home = require('os').homedir();
+            const candidates = [
+                require('path').join(home, '.config', 'opencode', 'antigravity-accounts.json'),
+                require('path').join(home, '.local', 'share', 'opencode', 'antigravity-accounts.json'),
+            ];
+            for (const p of candidates) if (fileExists(p)) return p;
+            return candidates[0];
+        },
+    },
+};
+
 async function manageOauth(p) {
+    const help = OAUTH_HELP[p.id];
+    const status = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+
     console.log();
     console.log(chalk.bold(`  ${p.label}`));
-    const status = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+
     if (status.ok) {
         console.log(`    ${log.success}  ${chalk.green('account detected:')} ${chalk.cyan(status.detail)}`);
-    } else {
-        console.log(`    ${log.warning}  ${chalk.yellow(status.detail)}`);
+        console.log();
+        const choices = [
+            { name: chalk.dim('Re-check (after you sign out / sign in again)'), value: 'recheck' },
+            { name: chalk.dim('Back'), value: 'back' },
+        ];
+        const r = await inquirer.prompt([{
+            type: 'list',
+            name: 'action',
+            message: 'What next?',
+            choices,
+        }]);
+        if (r.action === 'recheck') {
+            const newStatus = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
+            if (newStatus.ok) console.log(`    ${log.success}  ${chalk.green('still detected:')} ${chalk.cyan(newStatus.detail)}`);
+            else console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
+        }
+        return;
     }
+
+    // Not detected — show diagnosis + recovery steps.
+    console.log(`    ${log.warning}  ${chalk.yellow(status.detail)}`);
     console.log();
-    const choices = [];
-    if (p.id === 'antigravity') {
-        choices.push({ name: chalk.dim('Re-check (after you sign in)'), value: 'recheck' });
-    }
-    if (p.id === 'codex') {
-        choices.push({ name: chalk.dim('Re-check (after you sign in)'), value: 'recheck' });
-    }
-    choices.push({ name: chalk.dim('Back'), value: 'back' });
+    console.log(`    ${chalk.dim('Expected location:')} ${chalk.cyan(help.authPath())}`);
+    console.log();
+    console.log(`    ${chalk.bold('To set up:')}`);
+    console.log(`      1. Install:    ${chalk.cyan(help.installCmd)}`);
+    console.log(`      2. Sign in:    ${chalk.cyan(help.signInCmd)}`);
+    console.log(`         ${chalk.dim(help.signInNote)}`);
+    console.log(`      3. Come back and pick "${chalk.cyan(p.label)}" again to verify`);
+    console.log();
+
+    const choices = [
+        { name: chalk.green('Re-check now'), value: 'recheck' },
+        { name: chalk.dim('Back'), value: 'back' },
+    ];
     const r = await inquirer.prompt([{
         type: 'list',
         name: 'action',
@@ -553,8 +618,11 @@ async function manageOauth(p) {
     }]);
     if (r.action === 'recheck') {
         const newStatus = p.id === 'antigravity' ? checkAntigravity() : checkCodex();
-        if (newStatus.ok) console.log(`    ${log.success}  ${chalk.green('now detected:')} ${chalk.cyan(newStatus.detail)}`);
-        else console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
+        if (newStatus.ok) {
+            console.log(`    ${log.success}  ${chalk.green('account detected:')} ${chalk.cyan(newStatus.detail)}`);
+        } else {
+            console.log(`    ${log.warning}  ${chalk.yellow(newStatus.detail)}`);
+        }
     }
 }
 
