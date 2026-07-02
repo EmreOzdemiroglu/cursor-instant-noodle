@@ -87,10 +87,12 @@ cursor-noodle cheapmf       # free-tier fast path (Opencode key → DeepSeek/MiM
 cursor-noodle start         # start proxy + tunnel in the background
 cursor-noodle status        # running state + public tunnel URL
 cursor-noodle models        # list all available models
-cursor-noodle --help        # see all commands (stop, restart, tunnel, logs, setup)
+cursor-noodle --help        # see all commands (stop, restart, tunnel, logs, setup, uninstall)
 ```
 
-Uninstall: `npm uninstall -g cursor-instant-noodle` or run the included `uninstall.sh` (see `./uninstall.sh --help`).
+On a fresh machine, just running `cursor-noodle` will open the setup wizard for you. Once at least one provider is configured, it starts the proxy directly.
+
+Uninstall: `cursor-noodle uninstall` (or `npm uninstall -g cursor-instant-noodle`, or the included `uninstall.sh`). The `uninstall` command will ask whether to wipe `~/.cursor-noodle/` (API keys, OAuth tokens, logs) too — keep it if you plan to reinstall later.
 
 ## How it works
 

@@ -83,6 +83,24 @@ function readTunnelFromLog() {
     }
 }
 
+function hasAnyCredentials() {
+    // The proxy can serve requests with any one of these configured. If
+    // every provider is empty, running start() would just give the user
+    // a tunnel URL pointing at an empty box.
+    ensureDataDir();
+    ensureEnvFile();
+    const vars = [
+        'OPENCODE_ZEN_API_KEY', 'OPENCODE_GO_API_KEY',
+        'ZAI_API_KEY', 'MINIMAX_API_KEY',
+        'ANTIGRAVITY_REFRESH_TOKEN', 'ANTIGRAVITY_EMAIL',
+        'CODEX_REFRESH_TOKEN', 'CODEX_EMAIL',
+        'LMSTUDIO_API_KEY', 'LMSTUDIO_BASE_URL',
+        'LLAMACPP_API_KEY', 'LLAMACPP_BASE_URL',
+        'UNSLOTH_API_KEY', 'UNSLOTH_BASE_URL',
+    ];
+    return vars.some(v => readEnvKeys(v).length > 0);
+}
+
 function start() {
     ensureDataDir();
     if (isRunning()) {
@@ -92,6 +110,13 @@ function start() {
     if (!fs.existsSync(path.join(PACKAGE_DIR, 'node_modules'))) {
         console.log(log.error + ' ' + chalk.red('node_modules not found. Run `npm install` first.'));
         process.exit(1);
+    }
+    // If there's no provider configured yet, route to setup instead of
+    // spinning up an empty proxy. This makes `cursor-noodle` the only
+    // command a fresh user has to know about.
+    if (!hasAnyCredentials()) {
+        console.log(chalk.yellow('\n  No providers configured yet. Let’s set things up first.\n'));
+        return setup();
     }
     // Make sure an API key exists so the user can copy it into Cursor.
     const { ensureApiKey, readApiKey } = require('../lib/apikey.cjs');
@@ -1029,6 +1054,65 @@ program
     .command('cheapmf')
     .description('Fast path to free models — get an Opencode Zen key and use DeepSeek/MiMo/North for free')
     .action(() => cheapmf());
+
+program
+    .command('uninstall')
+    .description('Stop the proxy, remove the global binary, and optionally wipe ~/.cursor-noodle/')
+    .action(async () => {
+        const { execSync } = require('child_process');
+        const os = require('os');
+        const DATA_DIR = path.join(os.homedir(), '.cursor-noodle');
+
+        // 1) Stop the proxy first so we don't leave an orphan tunnel running.
+        try {
+            if (isRunning()) {
+                console.log(chalk.dim('  Stopping the proxy…'));
+                stop();
+            }
+        } catch (e) { /* tolerate: file missing etc. */ }
+
+        // 2) Ask about ~/.cursor-noodle BEFORE removing the binary, so the
+        // user can see the dir and decide.
+        let wipe = false;
+        if (fs.existsSync(DATA_DIR)) {
+            const stats = fs.statSync(DATA_DIR);
+            const hasEnv = fs.existsSync(path.join(DATA_DIR, '.env'));
+            const hasLog = fs.existsSync(path.join(DATA_DIR, '.cursor-noodle.log'));
+            console.log(chalk.dim(`\n  Data directory: ${DATA_DIR}`));
+            if (hasEnv) console.log(chalk.dim('    contains .env with your API keys and OAuth tokens'));
+            if (hasLog) console.log(chalk.dim('    contains proxy logs'));
+
+            const r = await inquirer.prompt([{
+                type: 'confirm',
+                name: 'wipe',
+                message: chalk.cyan('Delete ~/.cursor-noodle/ (API keys, OAuth tokens, logs) too?'),
+                default: false,
+            }]);
+            wipe = r.wipe;
+        }
+
+        // 3) Remove the global binary.
+        console.log(chalk.dim('\n  Removing the global `cursor-noodle` command…'));
+        try {
+            execSync('npm uninstall -g cursor-instant-noodle', { stdio: 'inherit' });
+        } catch (e) {
+            console.log(chalk.yellow('  Could not run `npm uninstall -g`. Remove it manually if it remains.'));
+        }
+
+        // 4) Optionally wipe the data directory.
+        if (wipe) {
+            try {
+                fs.rmSync(DATA_DIR, { recursive: true, force: true });
+                console.log(chalk.green(`  ${log.success}  Removed ${DATA_DIR}`));
+            } catch (e) {
+                console.log(chalk.red(`  ${log.error}  Could not remove ${DATA_DIR}: ${e.message}`));
+            }
+        } else {
+            console.log(chalk.dim(`  Kept ${DATA_DIR} (reinstall later with \`npm install -g .\` and your keys will still be there)`));
+        }
+
+        console.log(chalk.green('\n  🍜 Uninstalled. Bye!\n'));
+    });
 
 program
     .command('logs')
