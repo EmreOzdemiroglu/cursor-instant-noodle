@@ -19,6 +19,30 @@ const DEFAULT_MODELS = {
     'gpt-5.4-mini': 'gpt-5.4-mini',
 };
 
+// Reasoning effort levels for the GPT-5 family. Each advertised model ID
+// has a `-none`/`-light`/`-medium`/`-high`/`-xhigh` suffix that maps to one
+// of these. Probed against the Codex backend: `none` disables reasoning
+// cleanly, `minimal`/`max` are NOT accepted, only these 5 values work.
+const REASONING_EFFORT = {
+    'none': 'none',
+    'light': 'low',
+    'medium': 'medium',
+    'high': 'high',
+    'xhigh': 'xhigh',
+};
+
+// Strip a known reasoning suffix from the model ID and return the upstream
+// model + the effort key. e.g. 'gpt-5.5-xhigh' -> { upstream: 'gpt-5.5', effort: 'xhigh' }.
+// Falls back to medium for bare model IDs.
+function resolveModelAndEffort(model) {
+    for (const suffix of Object.keys(REASONING_EFFORT)) {
+        if (model.endsWith('-' + suffix)) {
+            return { upstream: model.slice(0, -(suffix.length + 1)), effort: suffix };
+        }
+    }
+    return { upstream: model, effort: 'medium' };
+}
+
 // Convert chat completions messages to codex responses input
 function messagesToInput(messages) {
     const input = [];
@@ -88,8 +112,9 @@ function buildRequest({ model, messages, max_tokens, temperature, top_p, tools, 
         };
     }).filter(t => t.name);
 
+    const { upstream, effort } = resolveModelAndEffort(model);
     const req = {
-        model: DEFAULT_MODELS[model] || model,
+        model: DEFAULT_MODELS[upstream] || upstream,
         store: false,
         stream: !!stream,
         input: messagesToInput(messages),
@@ -101,8 +126,8 @@ function buildRequest({ model, messages, max_tokens, temperature, top_p, tools, 
     if (codexTools.length > 0) req.tools = codexTools;
     if (tool_choice === 'auto') req.parallel_tool_calls = true;
     if (tool_choice === 'none') req.parallel_tool_calls = false;
-    // Always include reasoning for ChatGPT-backed gpt-5 family
-    req.reasoning = { effort: 'low' };
+    // Reasoning effort (probed valid values: none/low/medium/high/xhigh).
+    req.reasoning = { effort: REASONING_EFFORT[effort] || 'medium' };
 
     return req;
 }

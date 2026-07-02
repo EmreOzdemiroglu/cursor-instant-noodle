@@ -43,7 +43,7 @@ Click **+ Add Custom Model** and type the model ID (with the `n-` prefix). A few
 | `n-gemini-3.5-flash-medium` | Antigravity | free |
 | `n-gemini-3.1-pro-high` | Antigravity | free |
 | `n-claude-sonnet-4-6` | Antigravity | free |
-| `n-gpt-5.5` | Codex / ChatGPT | with Plus/Pro sub |
+| `n-gpt-5.5-medium` | Codex / ChatGPT | with Plus/Pro sub |
 | `n-glm-4.6` | z.ai | with coding plan |
 | `n-minimax-m3` | MiniMax | with coding plan |
 | `n-zen-claude-opus-4-6` | Opencode Zen | credits |

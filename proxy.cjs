@@ -39,9 +39,19 @@ const MODELS = [
     { id: 'minimax-m2.7', provider: 'minimax', name: 'MiniMax M2.7', desc: 'MiniMax coding plan', icon: '🍜' },
     { id: 'minimax-m2.5', provider: 'minimax', name: 'MiniMax M2.5', desc: 'MiniMax coding plan', icon: '🍜' },
 
-    // --- Codex (ChatGPT) ---
-    { id: 'gpt-5.5', provider: 'codex', name: 'GPT-5.5 (Codex)', desc: 'Latest GPT via ChatGPT', icon: '🍜' },
-    { id: 'gpt-5.4', provider: 'codex', name: 'GPT-5.4 (Codex)', desc: 'GPT-5.4 via ChatGPT', icon: '🍜' },
+    // --- Codex (ChatGPT) — each model exposes 5 reasoning-effort variants ---
+    { id: 'gpt-5.5-none', provider: 'codex', name: 'GPT-5.5 (no reasoning)', desc: 'Fastest, no chain-of-thought', icon: '🍜' },
+    { id: 'gpt-5.5-light', provider: 'codex', name: 'GPT-5.5 (light reasoning)', desc: 'Light reasoning, fast', icon: '🍜' },
+    { id: 'gpt-5.5-medium', provider: 'codex', name: 'GPT-5.5 (medium reasoning)', desc: 'Balanced reasoning (default)', icon: '🍜' },
+    { id: 'gpt-5.5-high', provider: 'codex', name: 'GPT-5.5 (high reasoning)', desc: 'Deep reasoning, slower', icon: '🍜' },
+    { id: 'gpt-5.5-xhigh', provider: 'codex', name: 'GPT-5.5 (xhigh reasoning)', desc: 'Maximum reasoning', icon: '🍜' },
+
+    { id: 'gpt-5.4-none', provider: 'codex', name: 'GPT-5.4 (no reasoning)', desc: 'Fastest', icon: '🍜' },
+    { id: 'gpt-5.4-light', provider: 'codex', name: 'GPT-5.4 (light reasoning)', desc: 'Light reasoning', icon: '🍜' },
+    { id: 'gpt-5.4-medium', provider: 'codex', name: 'GPT-5.4 (medium reasoning)', desc: 'Balanced', icon: '🍜' },
+    { id: 'gpt-5.4-high', provider: 'codex', name: 'GPT-5.4 (high reasoning)', desc: 'Deep reasoning', icon: '🍜' },
+    { id: 'gpt-5.4-xhigh', provider: 'codex', name: 'GPT-5.4 (xhigh reasoning)', desc: 'Maximum reasoning', icon: '🍜' },
+
     { id: 'gpt-5.4-mini', provider: 'codex', name: 'GPT-5.4 Mini (Codex)', desc: 'Faster, cheaper GPT-5.4', icon: '🍜' },
 
     // --- z.ai (GLM) ---

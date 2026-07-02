@@ -33,7 +33,7 @@ Open Cursor → **Models** → **+ Add Custom Model** and paste the ID from the 
 
 | Paste in Cursor | Backend | Approx. cost |
 |---|---|---|
-| `n-gpt-5.5` / `n-gpt-5.4` / `n-gpt-5.4-mini` | Codex | ChatGPT Plus/Pro sub |
+| `n-gpt-5.5-{none,light,medium,high,xhigh}` / `n-gpt-5.4-{none,light,medium,high,xhigh}` / `n-gpt-5.4-mini` | Codex | ChatGPT Plus/Pro sub |
 | `n-zen-gpt-5.5` / `n-zen-gpt-5.5-pro` | Opencode Zen | pay-per-token |
 | `n-zen-claude-opus-4-8` / `n-zen-claude-opus-4-6` | Opencode Zen | pay-per-token |
 | `n-zen-claude-sonnet-4-6` | Opencode Zen | (also free via Antigravity) |

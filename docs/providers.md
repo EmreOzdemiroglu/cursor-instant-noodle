@@ -9,7 +9,7 @@ This proxy is a router. It looks at the model name in the request and forwards t
 | Provider | Auth | Free? | Models |
 |---|---|---|---|
 | [Antigravity](#antigravity) | auto (opencode accounts) | free | Gemini 3 Flash/Pro, Claude 4.6, GPT-OSS |
-| [Codex / ChatGPT](#codex) | auto (`~/.codex/auth.json`) | with ChatGPT sub | gpt-5.5, gpt-5.4, gpt-5.4-mini |
+| [Codex / ChatGPT](#codex) | auto (`~/.codex/auth.json`) | with ChatGPT sub | gpt-5.5/x, gpt-5.4/x, gpt-5.4-mini |
 | [z.ai / GLM](#zai) | env or opencode | with coding plan | GLM-5.2, GLM-4.6 |
 | [MiniMax](#minimax) | auto (opencode coding plan) | with coding plan | MiniMax-M3, M2.7, M2.5 |
 | [Opencode Zen](#opencode-zen) | `OPENCODE_ZEN_API_KEY` | mostly paid, some free | 50+ models |
@@ -47,10 +47,12 @@ If you have a ChatGPT Plus or Pro subscription, you can use the latest GPT-5.x m
 
 If you don't have it: install the `codex` CLI and run `codex` to log in. The proxy will use the stored tokens.
 
-**Model IDs:**
-- `gpt-5.5` ← latest, what you'll want most of the time
-- `gpt-5.4` ← solid all-rounder
+**Model IDs (5 reasoning variants for each, plus the mini):**
+- `gpt-5.5-{none,light,medium,high,xhigh}` ← latest, what you'll want most of the time
+- `gpt-5.4-{none,light,medium,high,xhigh}` ← solid all-rounder
 - `gpt-5.4-mini` ← faster, cheaper
+
+Pick the variant by suffix: `-none` (no chain-of-thought), `-light` (a bit of reasoning), `-medium` (balanced, default), `-high` (deep), `-xhigh` (maximum).
 
 > The Codex backend requires streaming; the proxy handles this internally. Non-streaming requests are collected and returned as a single response.
 
