@@ -83,14 +83,23 @@ const MODELS = [
     // --- Opencode Go (opencode.ai/zen/go/v1) ---
     { id: 'opencode-minimax-m3', provider: 'opencode', name: 'Opencode · MiniMax M3', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-minimax-m2.7', provider: 'opencode', name: 'Opencode · MiniMax M2.7', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-minimax-m2.5', provider: 'opencode', name: 'Opencode · MiniMax M2.5', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-glm-5.2', provider: 'opencode', name: 'Opencode · GLM-5.2', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-glm-5.1', provider: 'opencode', name: 'Opencode · GLM-5.1', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-glm-5', provider: 'opencode', name: 'Opencode · GLM-5', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-kimi-k2.7-code', provider: 'opencode', name: 'Opencode · Kimi K2.7', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-kimi-k2.6', provider: 'opencode', name: 'Opencode · Kimi K2.6', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-kimi-k2.5', provider: 'opencode', name: 'Opencode · Kimi K2.5', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-qwen3.7-max', provider: 'opencode', name: 'Opencode · Qwen 3.7 Max', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-qwen3.7-plus', provider: 'opencode', name: 'Opencode · Qwen 3.7 Plus', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-qwen3.6-plus', provider: 'opencode', name: 'Opencode · Qwen 3.6 Plus', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-qwen3.5-plus', provider: 'opencode', name: 'Opencode · Qwen 3.5 Plus', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-deepseek-v4-pro', provider: 'opencode', name: 'Opencode · DeepSeek V4 Pro', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-deepseek-v4-flash', provider: 'opencode', name: 'Opencode · DeepSeek V4 Flash', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-mimo-v2.5-pro', provider: 'opencode', name: 'Opencode · MiMo v2.5 Pro', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-mimo-v2.5', provider: 'opencode', name: 'Opencode · MiMo v2.5', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-mimo-v2-pro', provider: 'opencode', name: 'Opencode · MiMo v2 Pro', desc: 'Opencode Go', icon: '🍜' },
+    { id: 'opencode-mimo-v2-omni', provider: 'opencode', name: 'Opencode · MiMo v2 Omni', desc: 'Opencode Go', icon: '🍜' },
     { id: 'opencode-hy3-preview', provider: 'opencode', name: 'Opencode · Hy3 Preview', desc: 'Opencode Go', icon: '🍜' },
 
     // --- Local: LMStudio ---
