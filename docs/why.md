@@ -1,6 +1,6 @@
 # Why? — Cursor on an instant-noodle budget
 
-![Cursor on an instant-noodle budget](../assets/cursor-ramen.png?v=2)
+![Cursor Pro plan at 95% usage, $20/mo, Pro+ upgrade nudge](../assets/cursor-dashboard.png)
 
 ## The problem
 
