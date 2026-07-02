@@ -1,29 +1,16 @@
-const fs = require('fs');
 const https = require('https');
 const { parseKeys } = require('../lib/keypool.cjs');
-const { ENV_FILE } = require('../lib/paths.cjs');
 
 // Env-only Antigravity auth. No opencode/agy auth-file fallback: setup owns
 // the state. Account selection is sticky and provider-level failover decides
 // when to try the next account.
+//
+// Like Codex, we keep access tokens in memory only. Writing back to .env on
+// every refresh would race with the .env watcher and cause proxy reloads
+// mid-request. The refresh token in .env is durable; the access token is
+// short-lived and re-derived from the refresh token on the next request
+// after a restart.
 const authCache = new Map();
-
-function updateEnvList(envVar, index, value) {
-    if (index == null || index < 0 || !value) return;
-    let content = '';
-    try { content = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8') : ''; } catch (e) { return; }
-    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
-    const match = content.match(re);
-    const values = match ? match[1].split(',').map(s => s.trim()) : [];
-    while (values.length <= index) values.push('_');
-    values[index] = value;
-    const line = `${envVar}=${values.join(',')}`;
-    content = match ? content.replace(re, line) : content + `\n${line}\n`;
-    try {
-        fs.writeFileSync(ENV_FILE, content);
-        process.env[envVar] = values.join(',');
-    } catch (e) {}
-}
 
 function clean(v) { return v && v !== '_' ? v : ''; }
 
@@ -50,7 +37,7 @@ function listAuthEntries() {
     }).filter(t => t.refreshToken);
 }
 
-function exchangeRefreshToken(refreshToken, envIndex = null) {
+function exchangeRefreshToken(refreshToken) {
     const clientId = process.env.ANTIGRAVITY_CLIENT_ID;
     const clientSecret = process.env.ANTIGRAVITY_CLIENT_SECRET;
     if (!clientId || !clientSecret) {
@@ -72,11 +59,7 @@ function exchangeRefreshToken(refreshToken, envIndex = null) {
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     try {
-                        const parsed = JSON.parse(data);
-                        if (envIndex != null && parsed.refresh_token) {
-                            updateEnvList('ANTIGRAVITY_REFRESH_TOKEN', envIndex, parsed.refresh_token);
-                        }
-                        resolve(parsed);
+                        resolve(JSON.parse(data));
                     } catch (e) { reject(new Error('Parse error: ' + data)); }
                 } else {
                     reject(new Error(`Token refresh failed (${res.statusCode}): ${data}`));
@@ -140,7 +123,7 @@ async function getAuthForEntry(stored) {
 
     console.log(`[antigravity] Refreshing token for ${stored.email}...`);
     try {
-        const tokenData = await exchangeRefreshToken(stored.refreshToken, stored.envIndex);
+        const tokenData = await exchangeRefreshToken(stored.refreshToken);
         const projectId = stored.projectId || await loadCodeAssist(tokenData.access_token) || 'rising-fact-p41fc';
         const auth = {
             access: tokenData.access_token,
@@ -151,7 +134,15 @@ async function getAuthForEntry(stored) {
             index: stored.envIndex,
             source: stored.source,
         };
-        authCache.set(auth.refresh || stored.refreshToken, auth);
+        // Re-key the cache if the server rotated the refresh token. We do
+        // NOT write the rotated refresh back to .env: that would race with
+        // the .env watcher and cause mid-request proxy reloads.
+        if (tokenData.refresh_token && tokenData.refresh_token !== stored.refreshToken) {
+            authCache.delete(stored.refreshToken);
+            authCache.set(auth.refresh, auth);
+        } else {
+            authCache.set(stored.refreshToken, auth);
+        }
         console.log(`[antigravity] Got fresh access token, project: ${auth.projectId}`);
         return auth;
     } catch (e) {

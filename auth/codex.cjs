@@ -1,30 +1,18 @@
-const fs = require('fs');
 const https = require('https');
 const { parseKeys } = require('../lib/keypool.cjs');
-const { ENV_FILE } = require('../lib/paths.cjs');
 
 // Env-only Codex auth. No Codex CLI auth.json fallback: setup owns the state.
 // Account selection is sticky: use account 0 until a provider-level failure,
 // then silently fail over to account 1, etc. This preserves backend cache
 // affinity better than request-by-request round-robin.
+//
+// Tokens live in an in-memory cache only — we never write back to .env on
+// every refresh. The refresh token in .env is durable; access/id tokens are
+// short-lived and we just hold them for the lifetime of the proxy process.
+// On restart the next request re-derives the access token from the refresh
+// token. Writing to .env on every refresh would race with the .env watcher
+// and cause proxy reloads mid-request.
 const authCache = new Map();
-
-function updateEnvList(envVar, index, value) {
-    if (index == null || index < 0 || !value) return;
-    let content = '';
-    try { content = fs.existsSync(ENV_FILE) ? fs.readFileSync(ENV_FILE, 'utf8') : ''; } catch (e) { return; }
-    const re = new RegExp(`^${envVar}=(.*)$`, 'm');
-    const match = content.match(re);
-    const values = match ? match[1].split(',').map(s => s.trim()) : [];
-    while (values.length <= index) values.push('_');
-    values[index] = value;
-    const line = `${envVar}=${values.join(',')}`;
-    content = match ? content.replace(re, line) : content + `\n${line}\n`;
-    try {
-        fs.writeFileSync(ENV_FILE, content);
-        process.env[envVar] = values.join(',');
-    } catch (e) {}
-}
 
 function clean(v) { return v && v !== '_' ? v : ''; }
 
@@ -45,7 +33,7 @@ function listAuthEntries() {
     })).filter(t => t.refresh_token || t.access_token);
 }
 
-function refreshAccessToken(refreshToken, envIndex = null) {
+function refreshAccessToken(refreshToken) {
     const clientId = process.env.CODEX_CLIENT_ID;
     if (!clientId) {
         return Promise.reject(new Error('Codex OAuth client_id missing. Run `cursor-noodle setup` and sign in with Codex.'));
@@ -66,14 +54,7 @@ function refreshAccessToken(refreshToken, envIndex = null) {
             res.on('end', () => {
                 if (res.statusCode >= 200 && res.statusCode < 300) {
                     try {
-                        const parsed = JSON.parse(data);
-                        if (envIndex != null) {
-                            updateEnvList('CODEX_ACCESS_TOKEN', envIndex, parsed.access_token);
-                            updateEnvList('CODEX_ID_TOKEN', envIndex, parsed.id_token);
-                            updateEnvList('CODEX_ACCOUNT_ID', envIndex, parsed.account_id);
-                            updateEnvList('CODEX_REFRESH_TOKEN', envIndex, parsed.refresh_token || refreshToken);
-                        }
-                        resolve(parsed);
+                        resolve(JSON.parse(data));
                     } catch (e) { reject(new Error('Parse error: ' + data)); }
                 } else {
                     reject(new Error(`Codex token refresh failed (${res.statusCode}): ${data}`));
@@ -94,7 +75,7 @@ async function getAuthForEntry(tokens) {
 
     if (!tokens.access_token && tokens.refresh_token) {
         try {
-            const parsed = await refreshAccessToken(tokens.refresh_token, tokens.envIndex);
+            const parsed = await refreshAccessToken(tokens.refresh_token);
             const auth = {
                 access: parsed.access_token,
                 idToken: parsed.id_token || tokens.id_token,
@@ -126,14 +107,22 @@ async function getAuthForEntry(tokens) {
     authCache.set(cacheKey, auth);
 
     if (tokens.refresh_token) {
-        refreshAccessToken(tokens.refresh_token, tokens.envIndex)
+        refreshAccessToken(tokens.refresh_token)
             .then(parsed => {
                 auth.access = parsed.access_token || auth.access;
                 auth.idToken = parsed.id_token || auth.idToken;
                 auth.accountId = parsed.account_id || auth.accountId;
-                auth.refresh = parsed.refresh_token || auth.refresh;
+                const newRefresh = parsed.refresh_token || auth.refresh;
+                // If the server rotated the refresh token, re-key the cache
+                // entry so subsequent lookups find the new refresh. We do
+                // NOT write the rotated refresh back to .env: it would
+                // race with the .env watcher and cause mid-request reloads.
+                if (parsed.refresh_token && parsed.refresh_token !== auth.refresh) {
+                    authCache.delete(auth.refresh);
+                    auth.refresh = parsed.refresh_token;
+                    authCache.set(auth.refresh, auth);
+                }
                 auth.expires = Date.now() + 50 * 60 * 1000;
-                authCache.set(auth.refresh || cacheKey, auth);
                 console.log('[codex] Refreshed access token');
             })
             .catch(e => console.error('[codex] background refresh failed:', e.message));
